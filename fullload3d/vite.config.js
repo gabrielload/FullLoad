@@ -8,10 +8,21 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: undefined,
+      },
+      external: (id) => {
+        // Prevent bundling of native modules
+        return id.includes('@rollup/rollup') || id.includes('fsevents')
       }
     },
     commonjsOptions: {
       transformMixedEsModules: true
+    },
+    target: 'esnext',
+    minify: 'esbuild'
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      target: 'esnext'
     }
   }
 })
