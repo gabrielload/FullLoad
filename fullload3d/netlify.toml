@@ -1,6 +1,6 @@
 [build]
   base = "fullload3d"
-  command = "npm run build"
+  command = "npm ci --legacy-peer-deps --no-optional && npm run build"
   publish = "dist"
 
 [[redirects]]
@@ -10,3 +10,4 @@
 
 [build.environment]
   NODE_VERSION = "22"
+  NPM_FLAGS = "--legacy-peer-deps --no-optional"
