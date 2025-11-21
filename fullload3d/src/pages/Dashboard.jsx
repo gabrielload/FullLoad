@@ -1,12 +1,15 @@
 // src/pages/Dashboard.jsx
 import React, { useEffect, useState } from "react";
 import ClientLayout from "../layouts/ClientLayout";
+import { useNavigate } from "react-router-dom";
 import { db } from "../services/firebaseConfig";
 import { collection, query, where, getDocs, orderBy } from "firebase/firestore";
 import { Package, TrendingUp, CheckCircle, Clock, Calendar, ArrowRight } from "lucide-react";
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [carregamentos, setCarregamentos] = useState([]);
+  const [planos, setPlanos] = useState([]);
   const [total, setTotal] = useState(0);
   const [emAndamento, setEmAndamento] = useState(0);
   const [finalizadas, setFinalizadas] = useState(0);
@@ -20,21 +23,29 @@ export default function Dashboard() {
 
     const carregarDados = async () => {
       try {
-        const q = query(
+        // 1. Carregamentos
+        const qCarreg = query(
           collection(db, "carregamentos"),
           where("empresaId", "==", empresaId),
           orderBy("dataEntrada", "desc")
         );
+        const snapCarreg = await getDocs(qCarreg);
+        const dadosCarreg = snapCarreg.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setCarregamentos(dadosCarreg);
 
-        const snap = await getDocs(q);
-        const dados = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-
-        setCarregamentos(dados);
+        // 2. Planos 3D
+        const qPlanos = query(
+          collection(db, "empresas", empresaId, "planos_carga"),
+          orderBy("dataCriacao", "desc")
+        );
+        const snapPlanos = await getDocs(qPlanos);
+        const dadosPlanos = snapPlanos.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setPlanos(dadosPlanos);
 
         // Métricas
-        setTotal(dados.length);
-        setEmAndamento(dados.filter((c) => c.status === "Em andamento").length);
-        setFinalizadas(dados.filter((c) => c.status === "Finalizado").length);
+        setTotal(dadosCarreg.length);
+        setEmAndamento(dadosCarreg.filter((c) => c.status === "Em andamento").length);
+        setFinalizadas(dadosCarreg.filter((c) => c.status === "Finalizado").length);
       } catch (err) {
         console.error("Erro ao carregar dados do dashboard:", err);
       } finally {
@@ -88,7 +99,7 @@ export default function Dashboard() {
         </div>
 
         {/* CARDS DE MÉTRICAS */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <MetricCard
             icon={Package}
             title="Total de Cargas"
@@ -110,84 +121,122 @@ export default function Dashboard() {
             gradient="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
             iconBg="bg-gradient-to-br from-emerald-500 to-emerald-600"
           />
+          <MetricCard
+            icon={Package} // Or another icon like Box or Grid
+            title="Planos 3D"
+            value={planos.length}
+            gradient="linear-gradient(135deg, #ff9a9e 0%, #fecfef 99%, #fecfef 100%)"
+            iconBg="bg-gradient-to-br from-pink-500 to-pink-600"
+          />
         </div>
 
-        {/* LISTA DE CARGAS RECENTES */}
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-          <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-2xl font-bold text-slate-900">Cargas Recentes</h2>
-                <p className="text-sm text-slate-500 mt-1">Últimas 10 operações registradas</p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+          {/* LISTA DE CARGAS RECENTES */}
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Cargas Recentes</h2>
+                  <p className="text-sm text-slate-500 mt-1">Últimas operações</p>
+                </div>
               </div>
-              <button className="flex items-center gap-2 px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg font-medium transition-colors shadow-md hover:shadow-lg">
-                Ver Todas
-                <ArrowRight className="w-4 h-4" />
-              </button>
+            </div>
+
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-orange-500 border-t-transparent"></div>
+                </div>
+              ) : carregamentos.length === 0 ? (
+                <div className="text-center py-16">
+                  <Package className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500 text-lg font-medium">Nenhuma carga</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left py-4 px-6 text-xs font-bold text-slate-600 uppercase tracking-wider">Descrição</th>
+                      <th className="text-left py-4 px-6 text-xs font-bold text-slate-600 uppercase tracking-wider">Status</th>
+                      <th className="text-left py-4 px-6 text-xs font-bold text-slate-600 uppercase tracking-wider">Data</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {carregamentos.slice(0, 5).map((c, idx) => (
+                      <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-4 px-6">
+                          <span className="font-medium text-slate-900">{c.descricao}</span>
+                        </td>
+                        <td className="py-4 px-6">
+                          <StatusBadge status={c.status} />
+                        </td>
+                        <td className="py-4 px-6">
+                          <span className="text-sm text-slate-600">{c.dataEntrada?.toDate().toLocaleDateString()}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
 
-          <div className="overflow-x-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-16">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-orange-500 border-t-transparent"></div>
+          {/* LISTA DE PLANOS 3D RECENTES */}
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold text-slate-900">Planos 3D Recentes</h2>
+                  <p className="text-sm text-slate-500 mt-1">Últimos planejamentos</p>
+                </div>
               </div>
-            ) : carregamentos.length === 0 ? (
-              <div className="text-center py-16">
-                <Package className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500 text-lg font-medium">Nenhuma carga registrada</p>
-                <p className="text-slate-400 text-sm mt-2">Suas cargas aparecerão aqui quando forem criadas</p>
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Descrição</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Status</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Quantidade</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Entrada</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Saída</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {carregamentos.slice(0, 10).map((c, idx) => (
-                    <tr
-                      key={c.id}
-                      className="hover:bg-slate-50 transition-colors group"
-                    >
-                      <td className="py-4 px-8">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
-                            {idx + 1}
-                          </div>
-                          <span className="font-medium text-slate-900">{c.descricao}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-8">
-                        <StatusBadge status={c.status} />
-                      </td>
-                      <td className="py-4 px-8">
-                        <span className="font-semibold text-slate-700">{c.quantidade}</span>
-                      </td>
-                      <td className="py-4 px-8">
-                        <div className="flex items-center gap-2 text-slate-600">
-                          <Calendar className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm">{c.dataEntrada?.toDate().toLocaleDateString()}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-8">
-                        <div className="flex items-center gap-2 text-slate-600">
-                          <Calendar className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm">
-                            {c.dataSaida ? c.dataSaida.toDate().toLocaleDateString() : "-"}
-                          </span>
-                        </div>
-                      </td>
+            </div>
+
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="flex items-center justify-center py-16">
+                  <div className="animate-spin rounded-full h-12 w-12 border-4 border-orange-500 border-t-transparent"></div>
+                </div>
+              ) : planos.length === 0 ? (
+                <div className="text-center py-16">
+                  <Package className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500 text-lg font-medium">Nenhum plano 3D</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left py-4 px-6 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome</th>
+                      <th className="text-left py-4 px-6 text-xs font-bold text-slate-600 uppercase tracking-wider">Itens</th>
+                      <th className="text-left py-4 px-6 text-xs font-bold text-slate-600 uppercase tracking-wider">Data</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {planos.slice(0, 5).map((p, idx) => (
+                      <tr
+                        key={p.id}
+                        className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                        onClick={() => navigate(`/fullload3d?planId=${p.id}`)}
+                      >
+                        <td className="py-4 px-6">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium text-slate-900 group-hover:text-orange-500 transition-colors">{p.nome}</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-6">
+                          <span className="font-semibold text-slate-700">{p.items?.length || 0}</span>
+                        </td>
+                        <td className="py-4 px-6">
+                          <span className="text-sm text-slate-600">
+                            {new Date(p.dataCriacao).toLocaleDateString()}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -13,13 +13,15 @@ import {
   orderBy,
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
-import { Trash2, Pencil, Search, Truck, Ruler, Box, Image, CheckCircle, Loader2 } from "lucide-react";
+import { Trash2, Pencil, Search, Truck, Ruler, Box, Image, CheckCircle, Loader2, FileText, Tag } from "lucide-react";
 
 export default function Caminhao() {
   const empresaId =
     typeof window !== "undefined" ? localStorage.getItem("empresaId") : null;
 
+  const [nome, setNome] = useState("");
   const [modelo, setModelo] = useState("");
+  const [placa, setPlaca] = useState("");
   const [comprimento, setComprimento] = useState("");
   const [largura, setLargura] = useState("");
   const [altura, setAltura] = useState("");
@@ -36,7 +38,7 @@ export default function Caminhao() {
       setLoading(true);
 
       const colRef = collection(db, "empresas", empresaId, "caminhoes");
-      const q = query(colRef, orderBy("modelo"));
+      const q = query(colRef, orderBy("nome")); // Ordenar por nome agora
       const snap = await getDocs(q);
 
       const data = snap.docs.map((doc) => ({
@@ -64,8 +66,8 @@ export default function Caminhao() {
   };
 
   const handleSalvar = async () => {
-    if (!modelo || !comprimento || !largura || !altura) {
-      alert("Preencha todos os campos obrigatórios: Modelo e dimensões do baú.");
+    if (!nome || !comprimento || !largura || !altura) {
+      alert("Preencha todos os campos obrigatórios: Nome e dimensões do baú.");
       return;
     }
 
@@ -75,7 +77,9 @@ export default function Caminhao() {
       if (foto) fotoUrl = await uploadFoto(foto);
 
       const caminhãoData = {
-        modelo,
+        nome,
+        modelo: modelo || null,
+        placa: placa || null,
         tamanhoBau: {
           L: parseFloat(comprimento),
           W: parseFloat(largura),
@@ -96,7 +100,9 @@ export default function Caminhao() {
         );
       }
 
+      setNome("");
       setModelo("");
+      setPlaca("");
       setComprimento("");
       setLargura("");
       setAltura("");
@@ -116,7 +122,9 @@ export default function Caminhao() {
 
   const handleEditar = (cam) => {
     setEditId(cam.id);
-    setModelo(cam.modelo);
+    setNome(cam.nome || "");
+    setModelo(cam.modelo || "");
+    setPlaca(cam.placa || "");
     setComprimento(cam.tamanhoBau?.L || "");
     setLargura(cam.tamanhoBau?.W || "");
     setAltura(cam.tamanhoBau?.H || "");
@@ -152,7 +160,9 @@ export default function Caminhao() {
 
   const listaFiltrada = useMemo(() => {
     return lista.filter((c) =>
-      c.modelo.toLowerCase().includes(filtro.toLowerCase())
+      (c.nome && c.nome.toLowerCase().includes(filtro.toLowerCase())) ||
+      (c.modelo && c.modelo.toLowerCase().includes(filtro.toLowerCase())) ||
+      (c.placa && c.placa.toLowerCase().includes(filtro.toLowerCase()))
     );
   }, [filtro, lista]);
 
@@ -225,12 +235,34 @@ export default function Caminhao() {
           <div className="space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Modelo*</label>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Nome*</label>
+                <input
+                  type="text"
+                  value={nome}
+                  onChange={(e) => setNome(e.target.value)}
+                  placeholder="Ex: Caminhão 01"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Modelo (opcional)</label>
                 <input
                   type="text"
                   value={modelo}
                   onChange={(e) => setModelo(e.target.value)}
                   placeholder="Ex: Scania R450"
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Placa (opcional)</label>
+                <input
+                  type="text"
+                  value={placa}
+                  onChange={(e) => setPlaca(e.target.value)}
+                  placeholder="Ex: ABC-1234"
                   className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                 />
               </div>
@@ -356,7 +388,7 @@ export default function Caminhao() {
             <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
             <input
               type="text"
-              placeholder="Buscar por modelo..."
+              placeholder="Buscar por nome, modelo ou placa..."
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
               className="w-full pl-12 pr-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-white shadow-sm font-medium text-slate-900"
@@ -382,7 +414,7 @@ export default function Caminhao() {
                     <div className="relative h-48 overflow-hidden">
                       <img
                         src={cam.fotoUrl}
-                        alt={`Foto ${cam.modelo}`}
+                        alt={`Foto ${cam.nome}`}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                       />
                       <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent"></div>
@@ -390,9 +422,25 @@ export default function Caminhao() {
                   )}
 
                   <div className="p-6 space-y-3">
-                    <h3 className="text-xl font-bold text-slate-900">{cam.modelo}</h3>
+                    <h3 className="text-xl font-bold text-slate-900">{cam.nome}</h3>
 
                     <div className="space-y-2 text-sm">
+                      {cam.modelo && (
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Tag className="w-4 h-4 text-orange-500" />
+                          <span className="font-medium">Modelo:</span>
+                          <span className="font-semibold text-slate-900">{cam.modelo}</span>
+                        </div>
+                      )}
+
+                      {cam.placa && (
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <FileText className="w-4 h-4 text-orange-500" />
+                          <span className="font-medium">Placa:</span>
+                          <span className="font-semibold text-slate-900">{cam.placa}</span>
+                        </div>
+                      )}
+
                       <div className="flex items-center gap-2 text-slate-600">
                         <Ruler className="w-4 h-4 text-orange-500" />
                         <span className="font-medium">Dimensões:</span>

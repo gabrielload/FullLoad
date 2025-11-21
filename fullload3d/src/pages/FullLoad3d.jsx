@@ -2,8 +2,10 @@
 import React, { useEffect, useRef, useState } from "react";
 import Menu3D from "../fullload3d/menu3D";
 import { jsPDF } from "jspdf";
-import { Camera, FileDown, RefreshCw, Info, X, ArrowLeft } from "lucide-react";
+import { Camera, FileDown, RefreshCw, Info, X, ArrowLeft, Save } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { db } from "../services/firebaseConfig";
+import { collection, addDoc, doc, getDoc } from "firebase/firestore";
 
 import {
   initFullLoadEngine,
@@ -11,17 +13,18 @@ import {
   setBauDimensions,
   setGhostObject,
   addMercadoriaAuto,
-  captureSnapshot
+  captureSnapshot,
+  getPlacedItems,
+  getBauState,
+  setItems
 } from "../fullload3d/fullLoadEngine";
 
 export default function FullLoad3D() {
   const canvasRef = useRef(null);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const navigate = useNavigate();
-
-  // =============================
-  //   INICIAR ENGINE 3D
-  // =============================
+  const queryParams = new URLSearchParams(window.location.search);
+  const planId = queryParams.get("planId");
   useEffect(() => {
     if (!canvasRef.current) return;
 
@@ -80,6 +83,36 @@ export default function FullLoad3D() {
   const handleNewPlan = () => {
     if (window.confirm("Deseja limpar todo o plano de carga?")) {
       clearScene();
+    }
+  };
+
+  const loadPlan = async (id) => {
+    try {
+      const empresaId = localStorage.getItem("empresaId");
+      if (!empresaId) return;
+
+      const docRef = doc(db, "empresas", empresaId, "planos_carga", id);
+      const snap = await getDoc(docRef);
+
+      if (snap.exists()) {
+        const data = snap.data();
+        if (data.bau) {
+          // Convert meters back to cm for setBauDimensions
+          setBauDimensions(data.bau.L * 100, data.bau.H * 100, data.bau.W * 100);
+        }
+        if (data.items) {
+          // Give engine a moment to reset bau
+          setTimeout(() => {
+            setItems(data.items);
+          }, 100);
+        }
+        console.log("Plano carregado:", data.nome);
+      } else {
+        alert("Plano não encontrado.");
+      }
+    } catch (err) {
+      console.error("Erro ao carregar plano:", err);
+      alert("Erro ao carregar plano.");
     }
   };
 
@@ -150,6 +183,51 @@ export default function FullLoad3D() {
     doc.save(`plano_carga_${Date.now()}.pdf`);
   };
 
+  const handleSalvar = async () => {
+    console.log("💾 Iniciando salvamento do plano...");
+    const items = getPlacedItems();
+    const bau = getBauState();
+
+    console.log("📦 Itens:", items);
+    console.log("🚛 Baú:", bau);
+
+    if (!items || items.length === 0) {
+      alert("O baú está vazio ou a engine não está pronta.");
+      return;
+    }
+
+    const nome = window.prompt("Nome do plano de carga:", `Plano ${new Date().toLocaleString()}`);
+    if (!nome) return;
+
+    try {
+      const empresaId = localStorage.getItem("empresaId");
+      console.log("🏢 Empresa ID:", empresaId);
+
+      if (!empresaId) {
+        alert("ERRO: Empresa não identificada (empresaId is missing).");
+        return;
+      }
+
+      const docData = {
+        nome,
+        dataCriacao: new Date().toISOString(),
+        bau,
+        items,
+        thumbnail: captureSnapshot("iso")
+      };
+
+      console.log("📝 Salvando documento:", docData);
+
+      await addDoc(collection(db, "empresas", empresaId, "planos_carga"), docData);
+
+      console.log("✅ Plano salvo com sucesso!");
+      alert("Plano salvo com sucesso!");
+    } catch (err) {
+      console.error("❌ Erro ao salvar plano:", err);
+      alert(`Erro ao salvar plano: ${err.message}`);
+    }
+  };
+
   // =============================
   //   LAYOUT: Menu + Tela 3D
   // =============================
@@ -163,7 +241,7 @@ export default function FullLoad3D() {
       <div className="flex-1 relative flex flex-col h-full">
 
         {/* TELA 3D */}
-        <div className="flex-1 relative bg-gradient-to-br from-gray-100 to-gray-200 m-3 rounded-3xl shadow-inner border border-white/50 overflow-hidden">
+        <div className="flex-1 relative bg-gray-50 m-3 rounded-3xl shadow-inner border border-white/50 overflow-hidden">
           <canvas
             ref={canvasRef}
             className="w-full h-full block outline-none"
@@ -189,6 +267,12 @@ export default function FullLoad3D() {
               label="Screenshot"
               onClick={handleScreenshot}
               color="bg-white text-gray-700 hover:bg-gray-50"
+            />
+            <ActionButton
+              icon={<Save className="w-5 h-5" />}
+              label="Salvar"
+              onClick={handleSalvar}
+              color="bg-green-600 text-white hover:bg-green-700"
             />
             <ActionButton
               icon={<FileDown className="w-5 h-5" />}

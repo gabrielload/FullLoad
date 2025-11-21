@@ -114,16 +114,8 @@ export function clampInsideBau(pos, size, bauBox, margin = 0) {
 
 // AABB Helpers
 export function getAABB(mesh) {
-  // If we stored size in userData, use it for precision
-  if (mesh.userData._size) {
-    const s = mesh.userData._size;
-    const p = mesh.position;
-    return {
-      min: { x: p.x - s.x / 2, y: p.y - s.y / 2, z: p.z - s.z / 2 },
-      max: { x: p.x + s.x / 2, y: p.y + s.y / 2, z: p.z + s.z / 2 },
-    };
-  }
-  // Fallback to bounding box
+  // Always use Box3 to ensure we get the correct world-space AABB, 
+  // especially for rotated items.
   const box = new THREE.Box3().setFromObject(mesh);
   return { min: box.min, max: box.max };
 }

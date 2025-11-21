@@ -1,15 +1,18 @@
 // src/pages/Carregamento.jsx
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import ClientLayout from "../layouts/ClientLayout";
 import { db } from "../services/firebaseConfig";
 import { collection, addDoc, getDocs, query, where, orderBy } from "firebase/firestore";
 import { Package, Plus, Calendar, Clock, CheckCircle, Loader2 } from "lucide-react";
 
 export default function Carregamento() {
+  const navigate = useNavigate();
   const [descricao, setDescricao] = useState("");
   const [quantidade, setQuantidade] = useState(1);
   const [status, setStatus] = useState("Em andamento");
   const [carregamentos, setCarregamentos] = useState([]);
+  const [planos, setPlanos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState("");
 
@@ -18,25 +21,35 @@ export default function Carregamento() {
   useEffect(() => {
     if (!empresaId) return;
 
-    const carregarCarregamentos = async () => {
+    const carregarDados = async () => {
       try {
         setLoading(true);
-        const q = query(
+
+        // 1. Carregamentos
+        const qCarreg = query(
           collection(db, "carregamentos"),
           where("empresaId", "==", empresaId),
           orderBy("dataEntrada", "desc")
         );
+        const snapCarreg = await getDocs(qCarreg);
+        setCarregamentos(snapCarreg.docs.map((d) => ({ id: d.id, ...d.data() })));
 
-        const snap = await getDocs(q);
-        setCarregamentos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        // 2. Planos 3D
+        const qPlanos = query(
+          collection(db, "empresas", empresaId, "planos_carga"),
+          orderBy("dataCriacao", "desc")
+        );
+        const snapPlanos = await getDocs(qPlanos);
+        setPlanos(snapPlanos.docs.map((d) => ({ id: d.id, ...d.data() })));
+
       } catch (err) {
-        console.error("Erro ao carregar carregamentos:", err);
+        console.error("Erro ao carregar dados:", err);
       } finally {
         setLoading(false);
       }
     };
 
-    carregarCarregamentos();
+    carregarDados();
   }, [empresaId]);
 
   const handleSubmit = async (e) => {
@@ -235,6 +248,73 @@ export default function Carregamento() {
                             {c.dataSaida ? c.dataSaida.toDate().toLocaleDateString() : "-"}
                           </span>
                         </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+
+          </div>
+        </div>
+
+        {/* Lista de Planos 3D Salvos */}
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden mt-8">
+          <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+            <h2 className="text-2xl font-bold text-slate-900">Planos 3D Salvos</h2>
+            <p className="text-sm text-slate-500 mt-1">Histórico de planejamentos 3D</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
+              </div>
+            ) : planos.length === 0 ? (
+              <div className="text-center py-16">
+                <Package className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <p className="text-slate-500 text-lg font-medium">Nenhum plano 3D salvo</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome do Plano</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Data</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Baú (m)</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Itens</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {planos.map((p, idx) => (
+                    <tr
+                      key={p.id}
+                      className="hover:bg-slate-50 transition-colors cursor-pointer group"
+                      onClick={() => navigate(`/fullload3d?planId=${p.id}`)}
+                    >
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-blue-100 flex items-center justify-center text-blue-600 font-bold shadow-sm group-hover:bg-orange-100 group-hover:text-orange-600 transition-colors">
+                            {idx + 1}
+                          </div>
+                          <span className="font-medium text-slate-900 group-hover:text-orange-500 transition-colors">{p.nome}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm">
+                            {new Date(p.dataCriacao).toLocaleDateString()} {new Date(p.dataCriacao).toLocaleTimeString()}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-8">
+                        <span className="text-sm text-slate-600">
+                          {p.bau ? `${p.bau.L} x ${p.bau.W} x ${p.bau.H}` : "-"}
+                        </span>
+                      </td>
+                      <td className="py-4 px-8">
+                        <span className="font-semibold text-slate-700">{p.items?.length || 0}</span>
                       </td>
                     </tr>
                   ))}

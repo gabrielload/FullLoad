@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import {
   cmToM,
+  mToCm,
   createBoxMesh,
   createCylinderMesh,
   createTireMesh,
@@ -34,6 +35,15 @@ let rafId = null;
 let running = false;
 let _engineAPI = null; // module-level pointer
 
+const ROTATION_STATES = [
+  [0, 0, 0],
+  [0, Math.PI / 2, 0],
+  [Math.PI / 2, 0, 0],
+  [Math.PI / 2, Math.PI / 2, 0],
+  [0, 0, Math.PI / 2],
+  [0, Math.PI / 2, Math.PI / 2]
+];
+
 export function initFullLoadEngine(container, initialBau = null) {
   // cleanup if re-init
   if (_engineAPI) {
@@ -42,7 +52,7 @@ export function initFullLoadEngine(container, initialBau = null) {
 
   // 1. Scene & Camera
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf0f0f0); // Light grey background
+  scene.background = new THREE.Color(0xf9f9f9); // Off-white background
 
   // Isometric-ish camera setup
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
@@ -210,11 +220,11 @@ export function initFullLoadEngine(container, initialBau = null) {
       const rawSize = ghostMesh.userData._size;
       const rotY = ghostMesh.rotation.y;
 
-      // Calculate effective size based on rotation
-      let size = { ...rawSize };
-      if (Math.abs(rotY - Math.PI / 2) < 0.01 || Math.abs(rotY - -Math.PI / 2) < 0.01) {
-        size = { x: rawSize.z, y: rawSize.y, z: rawSize.x };
-      }
+      // Calculate effective size based on rotation using Box3
+      const box = new THREE.Box3().setFromObject(ghostMesh);
+      const sizeVec = new THREE.Vector3();
+      box.getSize(sizeVec);
+      const size = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
 
       // 1. Tight Pack (Magnetic Snap)
       const existingItems = Array.from(placed.values());
@@ -311,7 +321,7 @@ export function initFullLoadEngine(container, initialBau = null) {
         if (ghostMesh) {
           const pos = ghost.position.clone();
           const meta = ghostMesh.userData._meta || ghostMesh.userData.meta || {};
-          const rot = ghostMesh.rotation.y;
+          const rot = ghostMesh.rotation;
 
           placeManualInternal(pos, rot, meta);
           return;
@@ -344,7 +354,7 @@ export function initFullLoadEngine(container, initialBau = null) {
   }
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
 
-  function placeManualInternal(pos, rotY, meta) {
+  function placeManualInternal(pos, rotation, meta) {
     const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `man_${Date.now()}`;
 
     let mesh;
@@ -364,18 +374,24 @@ export function initFullLoadEngine(container, initialBau = null) {
     }
 
     mesh.position.copy(pos);
-    mesh.rotation.y = rotY;
+    if (rotation.isEuler) {
+      mesh.rotation.copy(rotation);
+    } else if (Array.isArray(rotation)) {
+      mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
+    } else {
+      mesh.rotation.y = rotation; // fallback
+    }
+
     mesh.userData.colocId = colocId;
     mesh.userData.meta = meta;
 
     scene.add(mesh);
 
-    // If rotated 90deg, the AABB size effectively swaps X and Z
-    // But makeAABBForSizeAt uses the raw size. We need to adjust size for AABB if rotated.
-    let aabbSize = { ...size };
-    if (Math.abs(rotY - Math.PI / 2) < 0.01 || Math.abs(rotY - -Math.PI / 2) < 0.01) {
-      aabbSize = { x: size.z, y: size.y, z: size.x };
-    }
+    // Calculate AABB size from rotated mesh
+    const box = new THREE.Box3().setFromObject(mesh);
+    const sizeVec = new THREE.Vector3();
+    box.getSize(sizeVec);
+    const aabbSize = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
 
     const entry = { mesh, data: meta, aabb: makeAABBForSizeAt(aabbSize, mesh.position) };
     placed.set(colocId, entry);
@@ -410,10 +426,12 @@ export function initFullLoadEngine(container, initialBau = null) {
     // R: Rotate Ghost
     if (e.key === "r" || e.key === "R") {
       if (ghost.visible && ghost.children[0]) {
-        ghost.children[0].rotation.y += Math.PI / 2;
-        // Swap dimensions for AABB checks?
-        // The ghost visual rotates. The placement logic needs to know rotation.
-        // We read rotation from ghost mesh on placement.
+        const mesh = ghost.children[0];
+        const currentIdx = mesh.userData._rotIndex || 0;
+        const nextIdx = (currentIdx + 1) % ROTATION_STATES.length;
+        const r = ROTATION_STATES[nextIdx];
+        mesh.rotation.set(r[0], r[1], r[2]);
+        mesh.userData._rotIndex = nextIdx;
       }
     }
 
@@ -600,6 +618,11 @@ export function initFullLoadEngine(container, initialBau = null) {
 
     // add group and set bauInnerBox coords
     bauGroup.position.set(0, 0, 0);
+    // Label "FUNDO"
+    const label = createTextSprite("FUNDO");
+    label.position.set(L - 0.1, H / 2, W / 2); // Near the back wall
+    bauGroup.add(label);
+
     scene.add(bauGroup);
 
     bauInnerBox = {
@@ -659,7 +682,10 @@ export function initFullLoadEngine(container, initialBau = null) {
 
         mesh.userData.colocId = id;
         mesh.userData.meta = data.meta || {};
-        const aabb = makeAABBForSizeAt(mesh.userData._size, mesh.position);
+
+        // Calculate AABB size from rotated mesh
+        const box = new THREE.Box3().setFromObject(mesh);
+        const aabb = { min: box.min, max: box.max };
 
         scene.add(mesh);
         placed.set(id, { mesh, data, aabb });
@@ -700,6 +726,7 @@ export function initFullLoadEngine(container, initialBau = null) {
       mesh.material.opacity = 0.25;
       mesh.userData._size = { x: sx, y: sy, z: sz };
       mesh.userData._meta = merc;
+      mesh.userData._rotIndex = 0; // Init rotation index
       ghost.add(mesh);
       ghost.visible = true;
     }
@@ -972,8 +999,61 @@ export function initFullLoadEngine(container, initialBau = null) {
     destroy,
     addMercadoriaAuto,
     clearScene,
-    captureSnapshot
+    captureSnapshot,
+    getPlacedItems,
+    getBauState
   };
+
+  function getPlacedItems() {
+    return Array.from(placed.values()).map(entry => ({
+      id: entry.data.id || entry.mesh.userData.colocId,
+      position: [entry.mesh.position.x, entry.mesh.position.y, entry.mesh.position.z],
+      rotation: [entry.mesh.rotation.x, entry.mesh.rotation.y, entry.mesh.rotation.z],
+      scale: [entry.mesh.userData._size.x, entry.mesh.userData._size.y, entry.mesh.userData._size.z],
+      tipo: entry.data.tipo || entry.data.meta?.tipo || "caixa",
+      meta: entry.data.meta || entry.data
+    }));
+  }
+
+  function getBauState() {
+    if (!bauInnerBox) return null;
+    return {
+      L: cmToM(mToCm(bauInnerBox.max.x)),
+      H: cmToM(mToCm(bauInnerBox.max.y)),
+      W: cmToM(mToCm(bauInnerBox.max.z))
+    };
+  }
+
+
+  function createTextSprite(message) {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    const fontSize = 64;
+    ctx.font = `bold ${fontSize}px Arial`;
+    const textWidth = ctx.measureText(message).width;
+    canvas.width = textWidth + 20;
+    canvas.height = fontSize + 20;
+
+    // Background (optional)
+    // ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+    // ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Text
+    ctx.fillStyle = "#000000";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    const material = new THREE.SpriteMaterial({ map: texture });
+    const sprite = new THREE.Sprite(material);
+
+    // Scale sprite to be reasonable in 3D world (e.g. 1 meter wide approx)
+    const scale = 1.0;
+    sprite.scale.set(scale * (canvas.width / canvas.height), scale, 1);
+
+    return sprite;
+  }
 
   // store module-level pointer for wrapper exports
   _engineAPI = api;
@@ -1037,4 +1117,22 @@ export function addMercadoriaAuto(mercadoria, quantidade = 1) {
     return [];
   }
   return _engineAPI.addMercadoriaAuto(mercadoria, quantidade);
+}
+
+export function getPlacedItems() {
+  if (!_engineAPI) return [];
+  return _engineAPI.getPlacedItems();
+}
+
+export function getBauState() {
+  if (!_engineAPI) return null;
+  return _engineAPI.getBauState();
+}
+
+export function setItems(items) {
+  if (!_engineAPI) {
+    console.warn("setItems: engine not initialized");
+    return;
+  }
+  _engineAPI.setItems(items);
 }
