@@ -15,13 +15,19 @@ import {
 } from "firebase/auth";
 import Papa from "papaparse";
 
-import { 
+import {
   Save,
   Plus,
   Eye,
   EyeOff,
   FileText,
-  Trash2
+  Trash2,
+  User,
+  Mail,
+  Shield,
+  Loader2,
+  CheckCircle,
+  Users
 } from "lucide-react";
 
 export default function Usuarios() {
@@ -38,6 +44,7 @@ export default function Usuarios() {
   });
   const [loading, setLoading] = useState(false);
   const [showSenha, setShowSenha] = useState(false);
+  const [success, setSuccess] = useState("");
 
   // CSV
   const [openImportModal, setOpenImportModal] = useState(false);
@@ -52,43 +59,48 @@ export default function Usuarios() {
 
   const carregarUsuarios = async () => {
     try {
+      setLoading(true);
       const usuariosRef = collection(db, "empresas", empresaId, "usuarios");
       const snap = await getDocs(usuariosRef);
       setUsuarios(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error("Erro ao carregar usuários:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
   const handleChange = (field, value) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
-  // 👉 RESETAR SENHA
   const resetarSenha = async (email) => {
     try {
       await sendPasswordResetEmail(auth, email);
-      alert(`Link de redefinição enviado para: ${email}`);
+      setSuccess(`Link de redefinição enviado para: ${email}`);
+      setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       console.error("Erro ao enviar reset:", err);
       alert("Erro ao enviar e-mail de redefinição.");
     }
   };
 
-  // 👉 EXCLUIR USUÁRIO
   const excluirUsuario = async (uid) => {
     if (!window.confirm("Tem certeza que deseja excluir este usuário?")) return;
 
     try {
+      setLoading(true);
       await deleteDoc(doc(db, "empresas", empresaId, "usuarios", uid));
-      alert("Usuário excluído!");
+      setSuccess("Usuário excluído!");
+      setTimeout(() => setSuccess(""), 3000);
       carregarUsuarios();
     } catch (err) {
       console.error("Erro ao excluir usuário:", err);
       alert("Erro ao excluir usuário.");
+    } finally {
+      setLoading(false);
     }
   };
 
-  // 👉 CRIAR USUÁRIO INDIVIDUAL
   const criarUsuario = async () => {
     if (usuarios.length >= maxUsuarios)
       return alert(`Limite de ${maxUsuarios} usuários atingido.`);
@@ -105,7 +117,6 @@ export default function Usuarios() {
       );
       const user = userCredential.user;
 
-      // 🔥 Criar com UID igual
       await setDoc(
         doc(db, "empresas", empresaId, "usuarios", user.uid),
         {
@@ -120,6 +131,8 @@ export default function Usuarios() {
       setOpenModal(false);
       setForm({ nome: "", email: "", senha: "", cargo: "Operador" });
       setShowSenha(false);
+      setSuccess("Usuário criado com sucesso!");
+      setTimeout(() => setSuccess(""), 3000);
       carregarUsuarios();
     } catch (err) {
       console.error(err);
@@ -129,7 +142,6 @@ export default function Usuarios() {
     }
   };
 
-  // 👉 CSV UPLOAD
   const handleCSVUpload = (file) => {
     if (!file) return;
     setCsvFile(file);
@@ -141,7 +153,6 @@ export default function Usuarios() {
     });
   };
 
-  // 👉 IMPORTAR CSV
   const importarCSV = async () => {
     if (!csvFile) return alert("Selecione um arquivo CSV!");
     if (usuarios.length >= maxUsuarios)
@@ -197,89 +208,142 @@ export default function Usuarios() {
     });
   };
 
-  const btnOrange =
-    "bg-orange-500 hover:bg-orange-600 text-white transition-all";
+  const CargoBadge = ({ cargo }) => {
+    const config = {
+      Administrador: "bg-purple-100 text-purple-700 border-purple-200",
+      Supervisor: "bg-blue-100 text-blue-700 border-blue-200",
+      Operador: "bg-green-100 text-green-700 border-green-200",
+    };
+
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${config[cargo] || config.Operador}`}>
+        <Shield className="w-3 h-3" />
+        {cargo}
+      </span>
+    );
+  };
 
   return (
     <ClientLayout>
-      <div className="p-6 space-y-6 bg-[#F8F8F8] min-h-screen">
-        
-        {/* Cabeçalho */}
-        <div className="flex justify-between items-center">
-          <h2 className="text-3xl font-bold text-gray-900">Usuários</h2>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+        {/* Header */}
+        <div className="mb-8 flex justify-between items-center">
+          <div>
+            <h1 className="text-4xl font-bold text-slate-900 mb-2 flex items-center gap-3">
+              <Users className="w-10 h-10 text-orange-500" />
+              Usuários
+            </h1>
+            <p className="text-lg text-slate-600">Gerencie os usuários da empresa</p>
+          </div>
 
-          <div className="flex gap-2">
+          <div className="flex gap-3">
             <button
               onClick={() => setOpenModal(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded shadow ${btnOrange}`}
               disabled={usuarios.length >= maxUsuarios}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl shadow-lg shadow-orange-500/30 text-base font-bold text-white bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus size={16} /> Novo Usuário
+              <Plus size={20} /> Novo Usuário
             </button>
 
             <button
               onClick={() => setOpenImportModal(true)}
-              className={`flex items-center gap-2 px-4 py-2 rounded shadow ${btnOrange}`}
               disabled={usuarios.length >= maxUsuarios}
+              className="flex items-center gap-2 px-6 py-3 rounded-xl shadow-lg shadow-slate-500/30 text-base font-bold text-white bg-gradient-to-r from-slate-600 to-slate-500 hover:from-slate-700 hover:to-slate-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FileText size={16} /> Importar CSV
+              <FileText size={20} /> Importar CSV
             </button>
           </div>
         </div>
 
-        {/* Tabela */}
-        <div className="bg-white rounded-xl shadow overflow-x-auto border border-gray-200">
-          <table className="w-full text-left border-collapse">
-            <thead className="bg-gray-100">
-              <tr className="text-gray-700">
-                <th className="p-3">Nome</th>
-                <th>Email</th>
-                <th>Cargo</th>
-                <th>Criado em</th>
-                <th>Resetar Senha</th>
-                <th>Excluir</th>
-              </tr>
-            </thead>
+        {/* Success Message */}
+        {success && (
+          <div className="mb-6 bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded-r-lg animate-fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-emerald-500" />
+              <p className="text-sm text-emerald-700 font-medium">{success}</p>
+            </div>
+          </div>
+        )}
 
-            <tbody>
-              {usuarios.map((u) => (
-                <tr
-                  key={u.id}
-                  className="border-b border-gray-200 hover:bg-gray-50 transition-all"
-                >
-                  <td className="p-2 font-medium text-gray-900">{u.nome}</td>
-                  <td className="text-gray-700">{u.email}</td>
-                  <td className="text-gray-700">{u.cargo}</td>
+        {/* Table */}
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+          <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+            <h2 className="text-2xl font-bold text-slate-900">Lista de Usuários</h2>
+            <p className="text-sm text-slate-500 mt-1">{usuarios.length} de {maxUsuarios} usuários</p>
+          </div>
 
-                  <td className="text-gray-700">
-                    {u.criadoEm?.toDate
-                      ? u.criadoEm.toDate().toLocaleDateString()
-                      : ""}
-                  </td>
+          <div className="overflow-x-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
+              </div>
+            ) : usuarios.length === 0 ? (
+              <div className="text-center py-16">
+                <User className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <p className="text-slate-500 text-lg font-medium">Nenhum usuário cadastrado</p>
+                <p className="text-slate-400 text-sm mt-2">Adicione seu primeiro usuário</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Email</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Cargo</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Criado em</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Ações</th>
+                  </tr>
+                </thead>
 
-                  {/* Resetar senha */}
-                  <td className="p-2">
-                    <button
-                      onClick={() => resetarSenha(u.email)}
-                      className="text-blue-600 hover:text-blue-800 underline"
-                    >
-                      Resetar senha
-                    </button>
-                  </td>
+                <tbody className="divide-y divide-slate-100">
+                  {usuarios.map((u, idx) => (
+                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
+                            {u.nome[0].toUpperCase()}
+                          </div>
+                          <span className="font-medium text-slate-900">{u.nome}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Mail className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm">{u.email}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-8">
+                        <CargoBadge cargo={u.cargo} />
+                      </td>
+                      <td className="py-4 px-8 text-slate-600 text-sm">
+                        {u.criadoEm?.toDate
+                          ? u.criadoEm.toDate().toLocaleDateString()
+                          : ""}
+                      </td>
 
-                  {/* Lixeira */}
-                  <td className="p-2">
-                    <button
-                      onClick={() => excluirUsuario(u.id)}
-                      className="text-red-600 hover:text-red-800 p-2"
-                    >
-                      <Trash2 size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <td className="py-4 px-8">
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => resetarSenha(u.email)}
+                            className="px-3 py-1.5 rounded-lg border-2 border-blue-200 hover:border-blue-500 hover:bg-blue-50 text-blue-600 font-semibold text-sm transition-all"
+                          >
+                            Resetar senha
+                          </button>
+
+                          <button
+                            onClick={() => excluirUsuario(u.id)}
+                            className="p-2 rounded-lg bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white shadow-md transition-all"
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
 
         {/* Modal Criar Usuário */}
@@ -289,72 +353,84 @@ export default function Usuarios() {
             onClick={() => setOpenModal(false)}
           >
             <div
-              className="bg-white p-6 rounded-xl w-[400px] shadow-xl max-h-[90vh] overflow-y-auto"
+              className="bg-white p-8 rounded-2xl w-[500px] shadow-2xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-semibold mb-4 text-gray-900">
+              <h2 className="text-2xl font-bold mb-6 text-slate-900">
                 Novo Usuário
               </h2>
 
-              <div className="space-y-3">
-                <input
-                  className="w-full p-2 border border-gray-300 rounded text-gray-900"
-                  placeholder="Nome"
-                  value={form.nome}
-                  onChange={(e) => handleChange("nome", e.target.value)}
-                />
-
-                <input
-                  type="email"
-                  className="w-full p-2 border border-gray-300 rounded text-gray-900"
-                  placeholder="Email"
-                  value={form.email}
-                  onChange={(e) => handleChange("email", e.target.value)}
-                />
-
-                <div className="relative">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Nome</label>
                   <input
-                    type={showSenha ? "text" : "password"}
-                    className="w-full p-2 border border-gray-300 rounded text-gray-900"
-                    placeholder="Senha"
-                    value={form.senha}
-                    onChange={(e) => handleChange("senha", e.target.value)}
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                    placeholder="Nome completo"
+                    value={form.nome}
+                    onChange={(e) => handleChange("nome", e.target.value)}
                   />
-
-                  <button
-                    type="button"
-                    onClick={() => setShowSenha(!showSenha)}
-                    className="absolute right-2 top-2 text-gray-500"
-                  >
-                    {showSenha ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
                 </div>
 
-                <select
-                  className="w-full p-2 border border-gray-300 rounded text-gray-900"
-                  value={form.cargo}
-                  onChange={(e) => handleChange("cargo", e.target.value)}
-                >
-                  <option value="Administrador">Administrador</option>
-                  <option value="Supervisor">Supervisor</option>
-                  <option value="Operador">Operador</option>
-                </select>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
+                  <input
+                    type="email"
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                    placeholder="email@exemplo.com"
+                    value={form.email}
+                    onChange={(e) => handleChange("email", e.target.value)}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Senha</label>
+                  <div className="relative">
+                    <input
+                      type={showSenha ? "text" : "password"}
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                      placeholder="Senha segura"
+                      value={form.senha}
+                      onChange={(e) => handleChange("senha", e.target.value)}
+                    />
+
+                    <button
+                      type="button"
+                      onClick={() => setShowSenha(!showSenha)}
+                      className="absolute right-4 top-1/2 transform -translate-y-1/2 text-slate-500 hover:text-slate-700"
+                    >
+                      {showSenha ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-2">Cargo</label>
+                  <select
+                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                    value={form.cargo}
+                    onChange={(e) => handleChange("cargo", e.target.value)}
+                  >
+                    <option value="Administrador">Administrador</option>
+                    <option value="Supervisor">Supervisor</option>
+                    <option value="Operador">Operador</option>
+                  </select>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-2 mt-4">
+              <div className="flex justify-end gap-3 mt-6">
                 <button
                   onClick={() => setOpenModal(false)}
-                  className="px-4 py-2 border rounded text-gray-700"
+                  className="px-6 py-3 border-2 border-slate-200 rounded-xl text-slate-700 font-semibold hover:bg-slate-50 transition-all"
                 >
                   Cancelar
                 </button>
 
                 <button
                   onClick={criarUsuario}
-                  className={`flex items-center gap-1 px-4 py-2 rounded ${btnOrange}`}
                   disabled={loading}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold shadow-lg transition-all disabled:opacity-70"
                 >
-                  <Save size={16} /> {loading ? "Salvando..." : "Salvar"}
+                  {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Save size={16} /> Salvar</>}
                 </button>
               </div>
             </div>
@@ -371,10 +447,10 @@ export default function Usuarios() {
             }}
           >
             <div
-              className="bg-white p-6 rounded-xl w-[600px] shadow-xl max-h-[90vh] overflow-y-auto"
+              className="bg-white p-8 rounded-2xl w-[700px] shadow-2xl max-h-[90vh] overflow-y-auto"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-xl font-semibold mb-4 text-gray-900">
+              <h2 className="text-2xl font-bold mb-6 text-slate-900">
                 Importar Usuários CSV
               </h2>
 
@@ -382,18 +458,18 @@ export default function Usuarios() {
                 type="file"
                 accept=".csv"
                 onChange={(e) => handleCSVUpload(e.target.files[0])}
-                className="mb-4"
+                className="mb-4 w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50"
               />
 
               {csvPreview.length > 0 && (
-                <div className="mb-4 overflow-x-auto border border-gray-200 rounded">
+                <div className="mb-4 overflow-x-auto border border-slate-200 rounded-xl">
                   <table className="w-full text-left border-collapse">
-                    <thead className="bg-gray-100">
+                    <thead className="bg-slate-50">
                       <tr>
                         {Object.keys(csvPreview[0]).map((key) => (
                           <th
                             key={key}
-                            className="p-2 border border-gray-200 text-gray-700"
+                            className="p-3 border-b border-slate-200 text-slate-700 font-semibold"
                           >
                             {key}
                           </th>
@@ -403,11 +479,11 @@ export default function Usuarios() {
 
                     <tbody>
                       {csvPreview.map((row, i) => (
-                        <tr key={i} className="hover:bg-gray-50">
+                        <tr key={i} className="hover:bg-slate-50">
                           {Object.values(row).map((val, j) => (
                             <td
                               key={j}
-                              className="p-2 border border-gray-200 text-gray-700"
+                              className="p-3 border-b border-slate-100 text-slate-700"
                             >
                               {val}
                             </td>
@@ -419,27 +495,27 @@ export default function Usuarios() {
                 </div>
               )}
 
-              <div className="flex justify-end gap-2">
+              <div className="flex justify-end gap-3">
                 <button
                   onClick={() => {
                     setOpenImportModal(false);
                     setCsvPreview([]);
                   }}
-                  className="px-4 py-2 border rounded text-gray-700"
+                  className="px-6 py-3 border-2 border-slate-200 rounded-xl text-slate-700 font-semibold hover:bg-slate-50 transition-all"
                 >
                   Cancelar
                 </button>
 
                 <button
                   onClick={importarCSV}
-                  className={`flex items-center gap-1 px-4 py-2 rounded ${btnOrange}`}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold shadow-lg transition-all"
                 >
                   <Save size={16} /> Importar
                 </button>
               </div>
 
               {importStatus && (
-                <p className="mt-3 text-gray-700">{importStatus}</p>
+                <p className="mt-4 text-slate-700 font-medium">{importStatus}</p>
               )}
             </div>
           </div>

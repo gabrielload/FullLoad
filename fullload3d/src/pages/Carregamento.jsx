@@ -3,12 +3,15 @@ import React, { useState, useEffect } from "react";
 import ClientLayout from "../layouts/ClientLayout";
 import { db } from "../services/firebaseConfig";
 import { collection, addDoc, getDocs, query, where, orderBy } from "firebase/firestore";
+import { Package, Plus, Calendar, Clock, CheckCircle, Loader2 } from "lucide-react";
 
 export default function Carregamento() {
   const [descricao, setDescricao] = useState("");
   const [quantidade, setQuantidade] = useState(1);
   const [status, setStatus] = useState("Em andamento");
   const [carregamentos, setCarregamentos] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState("");
 
   const empresaId = localStorage.getItem("empresaId");
 
@@ -17,6 +20,7 @@ export default function Carregamento() {
 
     const carregarCarregamentos = async () => {
       try {
+        setLoading(true);
         const q = query(
           collection(db, "carregamentos"),
           where("empresaId", "==", empresaId),
@@ -27,6 +31,8 @@ export default function Carregamento() {
         setCarregamentos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
       } catch (err) {
         console.error("Erro ao carregar carregamentos:", err);
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -41,6 +47,7 @@ export default function Carregamento() {
     }
 
     try {
+      setLoading(true);
       await addDoc(collection(db, "carregamentos"), {
         empresaId,
         descricao,
@@ -62,101 +69,179 @@ export default function Carregamento() {
       );
       const snap = await getDocs(q);
       setCarregamentos(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+
+      setSuccess("Carregamento salvo com sucesso!");
+      setTimeout(() => setSuccess(""), 3000);
     } catch (err) {
       console.error("Erro ao salvar carregamento:", err);
       alert("Erro ao salvar carregamento. Veja console.");
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const StatusBadge = ({ status }) => {
+    const styles = {
+      "Em andamento": "bg-amber-100 text-amber-700 border-amber-200",
+      "Finalizado": "bg-emerald-100 text-emerald-700 border-emerald-200",
+    };
+
+    return (
+      <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold border ${styles[status] || "bg-slate-100 text-slate-700 border-slate-200"}`}>
+        {status === "Em andamento" ? <Clock className="w-3 h-3" /> : <CheckCircle className="w-3 h-3" />}
+        {status}
+      </span>
+    );
   };
 
   return (
     <ClientLayout>
-      <div className="p-6">
-        <h2 className="text-3xl font-bold mb-4">Novo Carregamento</h2>
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+        {/* Header */}
+        <div className="mb-8">
+          <h1 className="text-4xl font-bold text-slate-900 mb-2 flex items-center gap-3">
+            <Package className="w-10 h-10 text-orange-500" />
+            Novo Carregamento
+          </h1>
+          <p className="text-lg text-slate-600">
+            Registre e acompanhe suas operações de carga
+          </p>
+        </div>
 
-        <form onSubmit={handleSubmit} className="bg-white p-6 rounded-xl shadow border mb-6 space-y-4">
-          <div>
-            <label className="text-sm font-medium">Descrição</label>
-            <input
-              type="text"
-              value={descricao}
-              onChange={(e) => setDescricao(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
-              placeholder="Ex: Carga de eletrônicos"
-            />
+        {/* Success Message */}
+        {success && (
+          <div className="mb-6 bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded-r-lg animate-fade-in">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-emerald-500" />
+              <p className="text-sm text-emerald-700 font-medium">{success}</p>
+            </div>
           </div>
+        )}
 
-          <div>
-            <label className="text-sm font-medium">Quantidade</label>
-            <input
-              type="number"
-              value={quantidade}
-              onChange={(e) => setQuantidade(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
-              min={1}
-            />
-          </div>
+        {/* Form Card */}
+        <form onSubmit={handleSubmit} className="bg-white rounded-2xl shadow-lg border border-slate-100 p-8 mb-8">
+          <h2 className="text-2xl font-bold text-slate-900 mb-6">Dados do Carregamento</h2>
 
-          <div>
-            <label className="text-sm font-medium">Status</label>
-            <select
-              value={status}
-              onChange={(e) => setStatus(e.target.value)}
-              className="w-full p-2 border rounded mt-1"
+          <div className="space-y-6">
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-2">Descrição</label>
+              <input
+                type="text"
+                value={descricao}
+                onChange={(e) => setDescricao(e.target.value)}
+                className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                placeholder="Ex: Carga de eletrônicos"
+              />
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Quantidade</label>
+                <input
+                  type="number"
+                  value={quantidade}
+                  onChange={(e) => setQuantidade(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                  min={1}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Status</label>
+                <select
+                  value={status}
+                  onChange={(e) => setStatus(e.target.value)}
+                  className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                >
+                  <option value="Em andamento">Em andamento</option>
+                  <option value="Finalizado">Finalizado</option>
+                </select>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="w-full flex items-center justify-center gap-2 py-4 px-6 rounded-xl shadow-lg shadow-orange-500/30 text-base font-bold text-white bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-orange-500 transition-all transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-70 disabled:cursor-not-allowed"
             >
-              <option value="Em andamento">Em andamento</option>
-              <option value="Finalizado">Finalizado</option>
-            </select>
+              {loading ? (
+                <Loader2 className="w-6 h-6 animate-spin" />
+              ) : (
+                <>
+                  <Plus className="w-5 h-5" />
+                  Salvar Carregamento
+                </>
+              )}
+            </button>
           </div>
-
-          <button
-            type="submit"
-            className="px-4 py-2 bg-orange-600 text-white rounded hover:bg-orange-500"
-          >
-            Salvar Carregamento
-          </button>
         </form>
 
-        {/* LISTA DE CARGAS */}
-        <div className="bg-white p-5 rounded-xl shadow border">
-          <h3 className="text-xl font-semibold mb-4">Carregamentos Recentes</h3>
-          {carregamentos.length === 0 ? (
-            <p className="text-gray-500">Nenhum carregamento registrado.</p>
-          ) : (
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b">
-                  <th className="py-2 px-3">Descrição</th>
-                  <th className="py-2 px-3">Quantidade</th>
-                  <th className="py-2 px-3">Status</th>
-                  <th className="py-2 px-3">Entrada</th>
-                  <th className="py-2 px-3">Saída</th>
-                </tr>
-              </thead>
-              <tbody>
-                {carregamentos.slice(0, 10).map((c) => (
-                  <tr key={c.id} className="border-b last:border-none">
-                    <td className="py-2 px-3">{c.descricao}</td>
-                    <td className="py-2 px-3">{c.quantidade}</td>
-                    <td className="py-2 px-3">
-                      <span
-                        className={`px-2 py-1 rounded text-sm ${
-                          c.status === "Em andamento"
-                            ? "bg-yellow-100 text-yellow-800"
-                            : "bg-green-100 text-green-700"
-                        }`}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="py-2 px-3">{c.dataEntrada?.toDate().toLocaleDateString()}</td>
-                    <td className="py-2 px-3">
-                      {c.dataSaida ? c.dataSaida.toDate().toLocaleDateString() : "-"}
-                    </td>
+        {/* Lista de Carregamentos */}
+        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+          <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+            <h2 className="text-2xl font-bold text-slate-900">Carregamentos Recentes</h2>
+            <p className="text-sm text-slate-500 mt-1">Histórico de operações registradas</p>
+          </div>
+
+          <div className="overflow-x-auto">
+            {loading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
+              </div>
+            ) : carregamentos.length === 0 ? (
+              <div className="text-center py-16">
+                <Package className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                <p className="text-slate-500 text-lg font-medium">Nenhum carregamento registrado</p>
+                <p className="text-slate-400 text-sm mt-2">Seus carregamentos aparecerão aqui</p>
+              </div>
+            ) : (
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Descrição</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Quantidade</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Status</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Entrada</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Saída</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {carregamentos.slice(0, 10).map((c, idx) => (
+                    <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
+                            {idx + 1}
+                          </div>
+                          <span className="font-medium text-slate-900">{c.descricao}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-8">
+                        <span className="font-semibold text-slate-700">{c.quantidade}</span>
+                      </td>
+                      <td className="py-4 px-8">
+                        <StatusBadge status={c.status} />
+                      </td>
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm">{c.dataEntrada?.toDate().toLocaleDateString()}</span>
+                        </div>
+                      </td>
+                      <td className="py-4 px-8">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Calendar className="w-4 h-4 text-slate-400" />
+                          <span className="text-sm">
+                            {c.dataSaida ? c.dataSaida.toDate().toLocaleDateString() : "-"}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
         </div>
       </div>
     </ClientLayout>

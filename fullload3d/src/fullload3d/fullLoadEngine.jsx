@@ -1,233 +1,158 @@
-// src/fullLoad3d/fullLoadEngine.js
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls";
 import {
   cmToM,
-  round2,
-  snap,
-  clampInsideBau,
   createBoxMesh,
-  createTireMesh,
   createCylinderMesh,
+  createTireMesh,
   makeAABBForSizeAt,
   aabbIntersect,
   aabbIsOnTop,
+  clampInsideBau,
+  snap,
+  round2,
+  tightPack,
+  supportTopAt,
+  computeStackY
 } from "./fullLoadUtils";
 
-/**
- * Module-level engine pointer so we can export simple wrapper functions
- * that FullLoad3D.jsx expects (clearScene, setBauDimensions, setGhostObject, addMercadoriaAuto).
- */
-let _engineAPI = null;
+/*
+  fullLoadEngine.js
+  -----------------
+  Core 3D logic for the truck loading visualization.
+  Now includes "Tight Pack" and "Support Top" logic for professional packing.
+*/
 
-/**
- * initFullLoadEngine(opts)
- * opts:
- *   - mount: DOM element (required) — can be a <canvas> or a container (div)
- *   - bau: initial bau object (optional)
- *   - mercadorias: array (optional)
- *   - empresaId: optional
- *
- * returns engine API
- */
-export function initFullLoadEngine(opts = {}) {
-  // accept either initFullLoadEngine(canvasElement) or initFullLoadEngine({ mount: element, ... })
-  const { mount, bau: initialBau = null, mercadorias = [], empresaId = null } =
-    typeof opts === "object" && opts.mount ? opts : { mount: opts };
+let scene, camera, renderer, controls;
+let bauGroup = null;
+let bauInnerBox = null; // { min, max } in meters
+let ghost = null;
+let raycaster = null;
+let mouse = null;
+let placed = new Map(); // id -> { mesh, data, aabb }
+let rafId = null;
+let running = false;
+let _engineAPI = null; // module-level pointer
 
-  if (!mount) throw new Error("initFullLoadEngine: mount element required");
-
-  // If already initialized, return existing API (prevents double init in StrictMode)
+export function initFullLoadEngine(container, initialBau = null) {
+  // cleanup if re-init
   if (_engineAPI) {
-    console.warn("FullLoad Engine já inicializado — retornando instância existente.");
-    return _engineAPI;
+    _engineAPI.destroy();
   }
 
-  console.log("initFullLoadEngine: mount =>", mount);
+  // 1. Scene & Camera
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0xf0f0f0); // Light grey background
 
-  // --- three core ---
-  const scene = new THREE.Scene();
-  // neutral background so failures are visible during dev
-  scene.background = new THREE.Color(0xf7f7f7);
+  // Isometric-ish camera setup
+  camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
+  camera.position.set(-3, 4, 5); // Default position, will be focused later
 
-  // Decide whether mount is an existing canvas
-  const isCanvas = typeof mount.tagName === "string" && mount.tagName.toLowerCase() === "canvas";
+  // 2. Renderer
+  const rendererParams = { antialias: true, alpha: true };
+  const isCanvas = container.tagName === "CANVAS";
+  if (isCanvas) {
+    rendererParams.canvas = container;
+  }
 
-  // Create renderer: if a canvas was provided, attach renderer to it; otherwise create and append
-  const rendererOptions = { antialias: true };
-  if (isCanvas) rendererOptions.canvas = mount;
-
-  const renderer = new THREE.WebGLRenderer(rendererOptions);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer = new THREE.WebGLRenderer(rendererParams);
+  renderer.setSize(container.clientWidth, container.clientHeight);
   renderer.shadowMap.enabled = true;
-  // clear color fallback (avoid black if something fails)
-  renderer.setClearColor(0xf7f7f7);
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
 
-  // Ensure the renderer canvas has a sensible size
-  const safeWidth = (mount.clientWidth && mount.clientWidth > 0) ? mount.clientWidth : 800;
-  const safeHeight = (mount.clientHeight && mount.clientHeight > 0) ? mount.clientHeight : 600;
-  renderer.setSize(safeWidth, safeHeight, false);
-
-  // Append renderer.domElement only if mount is not a canvas and the element wasn't appended before
-  try {
-    if (!isCanvas && mount.appendChild && !Array.from(mount.children).includes(renderer.domElement)) {
-      mount.appendChild(renderer.domElement);
-    }
-  } catch (err) {
-    console.warn("Could not append renderer.domElement to mount:", err);
+  if (!isCanvas) {
+    container.innerHTML = "";
+    container.appendChild(renderer.domElement);
   }
 
-  console.log("Renderer appended. canvas size:", renderer.domElement.width, renderer.domElement.height);
+  // 3. Lights & Environment
+  const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.2);
+  hemiLight.position.set(0, 20, 0);
+  scene.add(hemiLight);
 
-  const camera = new THREE.PerspectiveCamera(50, safeWidth / safeHeight, 0.01, 2000);
-  camera.position.set(3, 2, 4);
-  camera.lookAt(0, 0.5, 0);
+  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  dirLight.position.set(10, 20, 10);
+  dirLight.castShadow = true;
+  dirLight.shadow.mapSize.width = 2048;
+  dirLight.shadow.mapSize.height = 2048;
+  dirLight.shadow.camera.near = 0.1;
+  dirLight.shadow.camera.far = 100;
+  dirLight.shadow.bias = -0.0005;
+  // Expand shadow camera
+  const d = 20;
+  dirLight.shadow.camera.left = -d;
+  dirLight.shadow.camera.right = d;
+  dirLight.shadow.camera.top = d;
+  dirLight.shadow.camera.bottom = -d;
+  scene.add(dirLight);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  // Fill light
+  const fillLight = new THREE.DirectionalLight(0xffeedd, 0.8);
+  fillLight.position.set(-10, 10, -10);
+  scene.add(fillLight);
+
+  // Ground Plane (Asphalt)
+  const groundGeo = new THREE.PlaneGeometry(200, 200);
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
+  const ground = new THREE.Mesh(groundGeo, groundMat);
+  ground.rotation.x = -Math.PI / 2;
+  ground.position.y = -0.1; // Below truck floor
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // 4. Controls
+  controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
+  controls.dampingFactor = 0.05;
 
-  // lights
-  const ambient = new THREE.AmbientLight(0xffffff, 0.65);
-  scene.add(ambient);
-  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-  dir.position.set(6, 10, 6);
-  dir.castShadow = true;
-  scene.add(dir);
-
-  // floor & grid
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(200, 200),
-    new THREE.MeshStandardMaterial({ color: 0xffffff })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.001;
-  floor.receiveShadow = true;
-  scene.add(floor);
-
-  // const grid = new THREE.GridHelper(200, 200, 0xdddddd, 0xeeeeee);
-  // grid.material.opacity = 0.6;
-  // grid.material.transparent = true;
-  // scene.add(grid);
-
-  // state
-  let bauGroup = null;
-  let bauInnerBox = null; // { min:{x,y,z}, max:{x,y,z} } in meters
-  const placed = new Map(); // id -> { mesh, data, aabb }
-  const ghost = new THREE.Object3D();
-  ghost.name = "ghost";
-  ghost.visible = false;
+  // 5. Ghost object (for manual placement)
+  ghost = new THREE.Group();
   scene.add(ghost);
 
-  // raycaster for interactions
-  const raycaster = new THREE.Raycaster();
-  const mouse = new THREE.Vector2();
+  // 6. Raycaster
+  raycaster = new THREE.Raycaster();
+  mouse = new THREE.Vector2();
 
-  // animation loop
-  let rafId = null;
-  let running = true;
+  // 7. Loop
+  running = true;
   function animate() {
     if (!running) return;
     rafId = requestAnimationFrame(animate);
-    try {
-      controls.update();
-      renderer.render(scene, camera);
-    } catch (err) {
-      // If context lost or other fatal error happens, log once and stop updating to avoid spam
-      console.error("Render loop error:", err);
-    }
+    controls.update();
+    renderer.render(scene, camera);
   }
   animate();
 
-  // handle canvas/webgl context lost/restored
-  function onContextLost(event) {
-    event.preventDefault();
-    console.warn("WebGL context lost");
-    running = false;
+  // Resize handler
+  function onResize() {
+    if (!renderer || !camera) return;
+    const w = container.clientWidth || window.innerWidth; // fallback
+    const h = container.clientHeight || window.innerHeight;
+    camera.aspect = w / h;
+    camera.updateProjectionMatrix();
+    renderer.setSize(w, h);
+  }
+  window.addEventListener("resize", onResize);
+
+  // Context loss handling
+  function onContextLost(e) {
+    e.preventDefault();
+    console.warn("WebGL Context Lost");
+    cancelAnimationFrame(rafId);
   }
   function onContextRestored() {
-    console.info("WebGL context restored");
-    // re-enable loop (renderer and GL state should be restored by browser)
-    running = true;
-    animate();
+    console.log("WebGL Context Restored");
+    initFullLoadEngine(container, initialBau); // Re-init?
   }
   renderer.domElement.addEventListener("webglcontextlost", onContextLost, false);
   renderer.domElement.addEventListener("webglcontextrestored", onContextRestored, false);
 
-  // resize
-  function onResize() {
-    try {
-      const w = mount.clientWidth || renderer.domElement.width || safeWidth;
-      const h = mount.clientHeight || renderer.domElement.height || safeHeight;
-      renderer.setSize(w, h, false);
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-    } catch (err) {
-      // ignore if mount not sized yet or removed
-    }
-  }
-  window.addEventListener("resize", onResize);
+  // ===============================
+  // CORE FUNCTIONS
+  // ===============================
 
-  // helper: compute AABBs of other placed items
   function getOthersAABBs() {
     return Array.from(placed.values()).map((p) => p.aabb);
-  }
-
-  // collision solver (simple lateral bump)
-  function resolveCollisionCandidate(candidateBox, othersAABBs, bauBox, opts = {}) {
-    const maxAttempts = opts.maxAttempts || 12;
-    const step = opts.pushStep || 0.03;
-
-    const collideAny = (box) => othersAABBs.some((o) => aabbIntersect(box, o));
-    if (!collideAny(candidateBox)) {
-      return {
-        ok: true,
-        pos: {
-          x: (candidateBox.min.x + candidateBox.max.x) / 2,
-          y: (candidateBox.min.y + candidateBox.max.y) / 2,
-          z: (candidateBox.min.z + candidateBox.max.z) / 2,
-        },
-      };
-    }
-
-    const originCenter = new THREE.Vector3(
-      (candidateBox.min.x + candidateBox.max.x) / 2,
-      (candidateBox.min.y + candidateBox.max.y) / 2,
-      (candidateBox.min.z + candidateBox.max.z) / 2
-    );
-    const directions = [
-      new THREE.Vector3(1, 0, 0),
-      new THREE.Vector3(-1, 0, 0),
-      new THREE.Vector3(0, 0, 1),
-      new THREE.Vector3(0, 0, -1),
-      new THREE.Vector3(1, 0, 1).normalize(),
-      new THREE.Vector3(-1, 0, 1).normalize(),
-      new THREE.Vector3(1, 0, -1).normalize(),
-      new THREE.Vector3(-1, 0, -1).normalize(),
-    ];
-
-    for (let r = 1; r <= maxAttempts; r++) {
-      for (const dir of directions) {
-        const dx = dir.x * step * r;
-        const dz = dir.z * step * r;
-        const center = new THREE.Vector3(originCenter.x + dx, originCenter.y, originCenter.z + dz);
-
-        const box = new THREE.Box3(
-          new THREE.Vector3(center.x + (candidateBox.min.x - originCenter.x), candidateBox.min.y, center.z + (candidateBox.min.z - originCenter.z)),
-          new THREE.Vector3(center.x + (candidateBox.max.x - originCenter.x), candidateBox.max.y, center.z + (candidateBox.max.z - originCenter.z))
-        );
-
-        // ensure inside bau
-        if (!bauBox) continue;
-        if (box.min.x < bauBox.min.x || box.max.x > bauBox.max.x || box.min.z < bauBox.min.z || box.max.z > bauBox.max.z) continue;
-        if (!collideAny(box)) {
-          return {
-            ok: true,
-            pos: { x: (box.min.x + box.max.x) / 2, y: (box.min.y + box.max.y) / 2, z: (box.min.z + box.max.z) / 2 },
-          };
-        }
-      }
-    }
-    return { ok: false };
   }
 
   // selection highlight utilities
@@ -250,6 +175,12 @@ export function initFullLoadEngine(opts = {}) {
     selectedId = null;
   }
 
+  // Grid Helper
+  const gridHelper = new THREE.GridHelper(20, 20, 0x888888, 0xdddddd);
+  gridHelper.position.y = 0.002; // Just above floor
+  gridHelper.visible = false; // Start hidden
+  scene.add(gridHelper);
+
   // pointer interactions
   function onPointerMove(e) {
     try {
@@ -261,29 +192,107 @@ export function initFullLoadEngine(opts = {}) {
 
       raycaster.setFromCamera(mouse, camera);
       const plane = bauGroup.getObjectByName("bau_ground_plane");
+
       if (!plane) return;
+
       const ints = raycaster.intersectObject(plane);
       if (!ints.length) return;
       const p = ints[0].point;
 
-      const step = 0.05;
-      const gx = snap(p.x, step);
-      const gz = snap(p.z, step);
+      const step = 0.01; // 1cm precision
+
+      let gx = snap(p.x, step);
+      let gz = snap(p.z, step);
 
       const ghostMesh = ghost.children[0];
       if (!ghostMesh) return;
-      const h = ghostMesh.userData._size.y;
-      const gy = round2(h / 2);
-      const clamped = clampInsideBau({ x: gx, y: gy, z: gz }, ghostMesh.userData._size, bauInnerBox);
-      ghost.position.set(clamped.x, clamped.y, clamped.z);
+
+      const rawSize = ghostMesh.userData._size;
+      const rotY = ghostMesh.rotation.y;
+
+      // Calculate effective size based on rotation
+      let size = { ...rawSize };
+      if (Math.abs(rotY - Math.PI / 2) < 0.01 || Math.abs(rotY - -Math.PI / 2) < 0.01) {
+        size = { x: rawSize.z, y: rawSize.y, z: rawSize.x };
+      }
+
+      // 1. Tight Pack (Magnetic Snap)
+      const existingItems = Array.from(placed.values());
+      const packed = tightPack(gx, gz, size.x, size.z, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
+      gx = packed.x;
+      gz = packed.z;
+
+      // 2. Strict Clamp to bau (IMMEDIATE)
+      // Ensure we are inside BEFORE checking stack/adjacency
+      const margin = 0.001;
+      const clamped = clampInsideBau({ x: gx, y: size.y / 2, z: gz }, size, bauInnerBox, margin);
+      gx = clamped.x;
+      gz = clamped.z;
+
+      // 3. Determine Y automatically (Gravity)
+      const validY = computeStackY(existingItems, bauInnerBox, gx, gz, size.x, size.y, size.z);
+
+      // 4. Adjacency Check
+      let isAdjacent = false;
+      if (validY !== null) {
+        isAdjacent = checkAdjacency({ x: gx, y: validY, z: gz }, size, existingItems, bauInnerBox);
+      }
+
+      let gy;
+      if (validY !== null && isAdjacent) {
+        gy = validY;
+        ghostMesh.material.color.setHex(ghostMesh.userData._meta?.color ? parseInt(ghostMesh.userData._meta.color.replace("#", "0x"), 16) : 0x0000aa);
+        ghostMesh.material.opacity = 0.5;
+        ghost.userData.isValid = true;
+      } else {
+        gy = validY !== null ? validY : size.y / 2;
+        ghostMesh.material.color.setHex(0xff0000);
+        ghostMesh.material.opacity = 0.8;
+        ghost.userData.isValid = false;
+      }
+
+      // Final position update
+      ghost.position.set(gx, gy, gz);
+
     } catch (err) {
-      // swallow pointer move exceptions to avoid breaking loop
       console.error("onPointerMove error:", err);
     }
   }
   renderer.domElement.addEventListener("pointermove", onPointerMove);
 
-  // pointer down -> select placed mesh if any
+  // Helper: Check if item touches wall or other items
+  function checkAdjacency(pos, size, existingItems, bauBox) {
+    const epsilon = 0.05; // 5cm tolerance
+
+    // 1. Wall Adjacency
+    const minZ = pos.z - size.z / 2;
+    const maxZ = pos.z + size.z / 2;
+    if (minZ <= epsilon) return true;
+    if (maxZ >= bauBox.max.z - epsilon) return true;
+
+    const minX = pos.x - size.x / 2;
+    const maxX = pos.x + size.x / 2;
+    if (minX <= epsilon) return true;
+    if (maxX >= bauBox.max.x - epsilon) return true;
+
+    // 2. Item Adjacency
+    const myAABB = makeAABBForSizeAt(size, pos);
+    myAABB.min.x -= epsilon; myAABB.min.z -= epsilon;
+    myAABB.max.x += epsilon; myAABB.max.z += epsilon;
+
+    for (const item of existingItems) {
+      if (myAABB.intersectsBox(item.aabb)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Wheel -> Adjust Height (Disabled)
+  function onWheel(e) { }
+  // renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
+
+  // pointer down -> Place or Select
   function onPointerDown(e) {
     try {
       const rect = renderer.domElement.getBoundingClientRect();
@@ -291,22 +300,43 @@ export function initFullLoadEngine(opts = {}) {
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
       raycaster.setFromCamera(mouse, camera);
 
-      const meshes = Array.from(placed.values()).map((p) => p.mesh);
-      if (!meshes.length) {
-        clearHighlight();
-        return;
+      // 1. Handle Ghost Placement (Left Click)
+      if (e.button === 0 && ghost.visible) {
+        if (ghost.userData.isValid === false) {
+          console.warn("Posição inválida!");
+          return;
+        }
+
+        const ghostMesh = ghost.children[0];
+        if (ghostMesh) {
+          const pos = ghost.position.clone();
+          const meta = ghostMesh.userData._meta || ghostMesh.userData.meta || {};
+          const rot = ghostMesh.rotation.y;
+
+          placeManualInternal(pos, rot, meta);
+          return;
+        }
       }
-      const ints = raycaster.intersectObjects(meshes, true);
-      if (ints.length) {
-        let root = ints[0].object;
-        while (root && !root.userData?.colocId) root = root.parent;
-        if (!root) {
+
+      // 2. Selection
+      if (!ghost.visible || e.button !== 0) {
+        const meshes = Array.from(placed.values()).map((p) => p.mesh);
+        if (!meshes.length) {
           clearHighlight();
           return;
         }
-        highlightSelect(root);
-      } else {
-        clearHighlight();
+        const ints = raycaster.intersectObjects(meshes, true);
+        if (ints.length) {
+          let root = ints[0].object;
+          while (root && !root.userData?.colocId) root = root.parent;
+          if (!root) {
+            clearHighlight();
+            return;
+          }
+          highlightSelect(root);
+        } else {
+          clearHighlight();
+        }
       }
     } catch (err) {
       console.error("onPointerDown error:", err);
@@ -314,56 +344,145 @@ export function initFullLoadEngine(opts = {}) {
   }
   renderer.domElement.addEventListener("pointerdown", onPointerDown);
 
-  // double click => place ghost (emit event)
-  async function onDblClick() {
-    if (!ghost.visible) return;
-    const ghostMesh = ghost.children[0];
-    if (!ghostMesh) return;
-    const pos = ghost.position.clone();
-    const meta = ghostMesh.userData._meta || ghostMesh.userData.meta || {};
-    window.dispatchEvent(new CustomEvent("fullLoad_enginePlacement", { detail: { pos, meta } }));
+  function placeManualInternal(pos, rotY, meta) {
+    const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `man_${Date.now()}`;
+
+    let mesh;
+    const tipo = meta.tipo || "caixa";
+    const dimL = cmToM(meta.comprimento || meta.L || 50);
+    const dimH = cmToM(meta.altura || meta.H || 50);
+    const dimW = cmToM(meta.largura || meta.W || 50);
+    const size = { x: dimL, y: dimH, z: dimW };
+
+    if (tipo === "cilindrico") {
+      const outer = dimL;
+      mesh = createCylinderMesh({ diameter: outer, height: dimH, color: meta.color || "#333" });
+      mesh.userData._size = size;
+    } else {
+      mesh = createBoxMesh([dimL, dimH, dimW], meta.color || "#ff7a18");
+      mesh.userData._size = size;
+    }
+
+    mesh.position.copy(pos);
+    mesh.rotation.y = rotY;
+    mesh.userData.colocId = colocId;
+    mesh.userData.meta = meta;
+
+    scene.add(mesh);
+
+    // If rotated 90deg, the AABB size effectively swaps X and Z
+    // But makeAABBForSizeAt uses the raw size. We need to adjust size for AABB if rotated.
+    let aabbSize = { ...size };
+    if (Math.abs(rotY - Math.PI / 2) < 0.01 || Math.abs(rotY - -Math.PI / 2) < 0.01) {
+      aabbSize = { x: size.z, y: size.y, z: size.x };
+    }
+
+    const entry = { mesh, data: meta, aabb: makeAABBForSizeAt(aabbSize, mesh.position) };
+    placed.set(colocId, entry);
   }
-  renderer.domElement.addEventListener("dblclick", onDblClick);
 
   // keyboard shortcuts
   function onKeyDown(e) {
-    // if (e.key === "g" || e.key === "G") grid.visible = !grid.visible;
+    // G: Grid
+    if (e.key === "g" || e.key === "G") {
+      gridHelper.visible = !gridHelper.visible;
+    }
+
+    // Space: Change View
+    if (e.key === " ") {
+      e.preventDefault();
+      // Cycle views: Iso -> Top -> Side -> Back -> Iso
+      // We can store current view index in a closure or just cycle based on position approx?
+      // Let's use a simple counter on the module scope if possible, or just random.
+      // Better: attach to camera userData
+      let v = camera.userData.viewIndex || 0;
+      v = (v + 1) % 4;
+      camera.userData.viewIndex = v;
+      const views = ["iso", "top", "side", "back"];
+      captureSnapshot(views[v]); // This function sets the camera! Handy reuse.
+      // Wait, captureSnapshot renders and returns image. We just want to SET camera.
+      // Let's extract setCameraView logic or just call it and ignore return.
+      // But captureSnapshot restores the camera at the end! So we can't use it to CHANGE view permanently.
+      // We need a separate setView function.
+      setView(views[v]);
+    }
+
+    // R: Rotate Ghost
+    if (e.key === "r" || e.key === "R") {
+      if (ghost.visible && ghost.children[0]) {
+        ghost.children[0].rotation.y += Math.PI / 2;
+        // Swap dimensions for AABB checks?
+        // The ghost visual rotates. The placement logic needs to know rotation.
+        // We read rotation from ghost mesh on placement.
+      }
+    }
+
+    // Delete
     if (e.key === "Delete" || e.key === "Backspace") {
-      if (!selectedId) return;
-      window.dispatchEvent(new CustomEvent("fullLoad_remove", { detail: { colocId: selectedId } }));
+      if (selectedId) {
+        window.dispatchEvent(new CustomEvent("fullLoad_remove", { detail: { colocId: selectedId } }));
+      }
+    }
+
+    // Arrow Keys: Move Selected
+    if (selectedId && ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+      e.preventDefault();
+      const entry = placed.get(selectedId);
+      if (entry) {
+        const step = 0.01; // 1cm
+        if (e.key === "ArrowUp") entry.mesh.position.z -= step;
+        if (e.key === "ArrowDown") entry.mesh.position.z += step;
+        if (e.key === "ArrowLeft") entry.mesh.position.x -= step;
+        if (e.key === "ArrowRight") entry.mesh.position.x += step;
+
+        // Update AABB
+        entry.aabb = makeAABBForSizeAt(entry.mesh.userData._size, entry.mesh.position);
+      }
+    }
+
+    // PageUp/Down: Ghost Height
+    if (ghost.visible && (e.key === "PageUp" || e.key === "PageDown")) {
+      e.preventDefault();
+      const ghostMesh = ghost.children[0];
+      if (!ghostMesh) return;
+
+      const h = ghostMesh.userData._size.y;
+      let step = 0.01;
+      if (e.shiftKey) step = h;
+
+      if (e.key === "PageUp") ghost.position.y += step;
+      if (e.key === "PageDown") ghost.position.y -= step;
+
+      if (ghost.position.y < h / 2) ghost.position.y = h / 2;
     }
   }
   window.addEventListener("keydown", onKeyDown);
 
-  // window events: placeManual (from left sidebar) -> set ghost meta + show instruction
+  function setView(view) {
+    if (!bauInnerBox) return;
+    const L = bauInnerBox.max.x;
+    const W = bauInnerBox.max.z;
+    const H = bauInnerBox.max.y;
+    controls.target.set(L / 2, H / 2, W / 2);
+
+    if (view === "iso") camera.position.set(-L * 0.5, H * 3, W * 2.5);
+    else if (view === "top") camera.position.set(L / 2, H * 4, W / 2);
+    else if (view === "side") camera.position.set(L / 2, H / 2, W * 3);
+    else if (view === "back") camera.position.set(-L, H / 2, W / 2);
+
+    camera.lookAt(controls.target);
+    controls.update();
+  }
+
+  // window events: placeManual
   function onPlaceManual(e) {
     const d = e.detail || {};
-    const mercId = d.mercadoriaId;
-    const qty = Number(d.quantidade || 1);
-    if (!mercId) return;
-    const m = mercadorias.find((x) => x.id === mercId);
-    if (!m) {
-      console.warn("placeManual: mercadoria not found in engine list");
-      return;
+    if (d.mercadoria) {
+      setGhostMeta(d.mercadoria);
+      // try { alert("Mova o fantasma com o mouse e clique para colocar."); } catch { }
     }
-    setGhostMeta(m);
-    // use non-blocking UI pattern where possible; keep alert for dev
-    try { alert("Mova o fantasma com o mouse e dê duplo-clique para colocar."); } catch { }
   }
   window.addEventListener("fullLoad_placeManual", onPlaceManual);
-
-  // allow external removal event to clear highlight and remove mesh
-  function onExternalRemove(e) {
-    const { colocId } = e.detail || {};
-    if (!colocId) return;
-    const entry = placed.get(colocId);
-    if (entry) {
-      try { scene.remove(entry.mesh); } catch { }
-      placed.delete(colocId);
-    }
-    if (selectedId === colocId) selectedId = null;
-  }
-  window.addEventListener("fullLoad_removedExternamente", onExternalRemove);
 
   // also respond to "fullLoad_remove"
   window.addEventListener("fullLoad_remove", (e) => {
@@ -432,7 +551,11 @@ export function initFullLoadEngine(opts = {}) {
 
     // 1. Floor (Solid)
     const floorGeo = new THREE.BoxGeometry(L, 0.05, W);
-    const floorMat = new THREE.MeshStandardMaterial({ color: 0x888888, roughness: 0.8, metalness: 0.2 });
+    const floorMat = new THREE.MeshStandardMaterial({
+      color: 0x555555,
+      roughness: 0.4,
+      metalness: 0.3
+    });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.position.set(L / 2, -0.025, W / 2); // Just below y=0
     floorMesh.receiveShadow = true;
@@ -462,9 +585,10 @@ export function initFullLoadEngine(opts = {}) {
     bauGroup.add(sideWall2);
 
     // Edges (Dark Grey) - Keep for definition
+    const innerGeo = new THREE.BoxGeometry(L, H, W); // Re-define innerGeo for edges
     const edges = new THREE.EdgesGeometry(innerGeo);
     const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x333333 }));
-    line.position.copy(inner.position);
+    line.position.set(L / 2, H / 2, W / 2);
     bauGroup.add(line);
 
     // invisible plane for raycasting (name important)
@@ -594,7 +718,8 @@ export function initFullLoadEngine(opts = {}) {
     const L = bauInnerBox.max.x,
       W = bauInnerBox.max.z,
       H = bauInnerBox.max.y;
-    camera.position.set(Math.max(2, L * 1.2), Math.max(1.6, H * 0.8), Math.max(2, W * 1.2));
+    // Isometric-ish view
+    camera.position.set(-L * 0.5, H * 3, W * 2.5);
     controls.target.set(L / 2, H / 2, W / 2);
     controls.update();
   }
@@ -657,116 +782,77 @@ export function initFullLoadEngine(opts = {}) {
     }
 
     const placedResults = [];
-
-    // Sort items by volume (descending) for better packing?
-    // For now, we process them in the order requested, or we can just iterate.
-    // The user might want "add 10 of this".
-
-    // We need to know what is ALREADY placed in the scene to avoid collisions.
-    // We'll maintain a local list of AABBs including the ones we just added in this loop.
-    const existingAABBs = getOthersAABBs();
+    const existingItems = Array.from(placed.values());
 
     for (let i = 0; i < quantidade; i++) {
       const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `auto_${Date.now()}_${i}`;
 
-      // --- create size in meters ---
-      const sx = cmToM(mercadoria.comprimento || mercadoria.L || 50);
-      const sy = cmToM(mercadoria.altura || mercadoria.H || 50);
-      const sz = cmToM(mercadoria.largura || mercadoria.W || 50);
-      const size = { x: sx, y: sy, z: sz };
-
-      // 3D Packing Heuristic
-      // Candidates: (0,0,0) and corners of all existing items.
-      // We want to minimize Z (back), then Y (bottom), then X (left).
+      // Base dimensions
+      const dimL = cmToM(mercadoria.comprimento || mercadoria.L || 50);
+      const dimH = cmToM(mercadoria.altura || mercadoria.H || 50);
+      const dimW = cmToM(mercadoria.largura || mercadoria.W || 50);
 
       let bestPos = null;
+      let bestScore = Infinity;
+      let bestRot = 0; // 0 or Math.PI/2
+      let bestDims = { x: dimL, y: dimH, z: dimW };
 
-      // Generate candidates
-      const candidates = [];
-      // Always try origin
-      candidates.push({ x: sx / 2, y: sy / 2, z: sz / 2 });
+      // Try two orientations: 0 deg and 90 deg (swap L and W)
+      const orientations = [
+        { r: 0, dx: dimL, dz: dimW },
+        { r: Math.PI / 2, dx: dimW, dz: dimL }
+      ];
 
-      // Try relative to existing items
-      for (const otherBox of existingAABBs) {
-        // 1. Right of other
-        candidates.push({
-          x: otherBox.max.x + sx / 2,
-          y: otherBox.min.y + sy / 2,
-          z: (otherBox.min.z + otherBox.max.z) / 2 // Center Z of other? Or align min Z?
-        });
-        // Align min Z
-        candidates.push({ x: otherBox.max.x + sx / 2, y: otherBox.min.y + sy / 2, z: otherBox.min.z + sz / 2 });
+      for (const orient of orientations) {
+        const sx = orient.dx;
+        const sy = dimH;
+        const sz = orient.dz;
 
-        // 2. In front of other (towards +Z? No, usually +Z is width in our coord system? 
-        // Wait, let's check coords. 
-        // L is X (length), W is Z (width), H is Y (height).
-        // Usually "Back" of truck is X=0 or X=L? 
-        // The camera looks at 0,0,0?
-        // camera.position.set(3, 2, 4); lookAt(0, 0.5, 0);
-        // setBau creates box from 0 to L.
-        // Usually X=0 is the front wall (cab), X=L is the door? Or vice versa.
-        // The code says "Front Wall (at x=L)". So X=0 is the back/open part?
-        // Wait, "Front Wall (at x=L)" implies the cab is at L. So we load from 0?
-        // Let's assume we load from X=0 (Back/Door) towards X=L (Cab).
-        // OR we load from X=L (Cab) towards X=0 (Door).
-        // Standard logic: Fill from Cab (L) to Door (0).
-        // BUT the previous loop was: x from min.x (0) to max.x (L).
-        // So it was filling from 0 upwards.
-        // If X=L is the "Front Wall", then X=0 is the door.
-        // We usually want to fill from the Front Wall (L) towards the Door (0).
-        // BUT the previous code filled 0 -> L.
-        // Let's stick to filling 0 -> L (assuming 0 is the "deep end" or just filling order).
-        // If the user says "parelhados", they want tight packing.
+        // Candidate Generation
+        const candidates = [];
+        const spacing = 0.001; // Safety margin
+        candidates.push({ x: sx / 2 + spacing, z: sz / 2 + spacing }); // Origin
 
-        // Let's generate candidates at:
-        // - Top of other
-        candidates.push({ x: (otherBox.min.x + otherBox.max.x) / 2, y: otherBox.max.y + sy / 2, z: (otherBox.min.z + otherBox.max.z) / 2 });
-        // Align min X, min Z on top
-        candidates.push({ x: otherBox.min.x + sx / 2, y: otherBox.max.y + sy / 2, z: otherBox.min.z + sz / 2 });
+        for (const item of existingItems) {
+          const b = item.aabb;
 
-        // - Front of other (X axis)
-        candidates.push({ x: otherBox.max.x + sx / 2, y: otherBox.min.y + sy / 2, z: otherBox.min.z + sz / 2 });
+          // 1. Right of item (X+)
+          const rightX = b.max.x + sx / 2 + spacing;
+          candidates.push({ x: rightX, z: b.min.z + sz / 2 }); // Align bottom Z
+          candidates.push({ x: rightX, z: b.max.z - sz / 2 }); // Align top Z
+          candidates.push({ x: rightX, z: (b.min.z + b.max.z) / 2 }); // Center Z
 
-        // - Side of other (Z axis)
-        candidates.push({ x: otherBox.min.x + sx / 2, y: otherBox.min.y + sy / 2, z: otherBox.max.z + sz / 2 });
-      }
+          // 2. Front of item (Z+)
+          const frontZ = b.max.z + sz / 2 + spacing;
+          candidates.push({ x: b.min.x + sx / 2, z: frontZ }); // Align left X
+          candidates.push({ x: b.max.x - sx / 2, z: frontZ }); // Align right X
+          candidates.push({ x: (b.min.x + b.max.x) / 2, z: frontZ }); // Center X
 
-      // Filter and Sort Candidates
-      // Sort criteria: Min X (fill from 0), then Min Y (bottom), then Min Z.
-      // Or Min Z, Min Y, Min X.
-      // Let's prioritize filling the "floor" (Y=0) and "back" (X=0).
-      // So sort by: Y asc, X asc, Z asc.
-
-      candidates.sort((a, b) => {
-        if (Math.abs(a.y - b.y) > 0.01) return a.y - b.y; // Bottom first
-        if (Math.abs(a.x - b.x) > 0.01) return a.x - b.x; // Back first (assuming 0 is back)
-        return a.z - b.z; // Left to right
-      });
-
-      for (const pos of candidates) {
-        const aabb = makeAABBForSizeAt(size, pos);
-
-        // 1. Check bounds
-        if (aabb.min.x < bauInnerBox.min.x - 0.001 || aabb.max.x > bauInnerBox.max.x + 0.001 ||
-          aabb.min.y < bauInnerBox.min.y - 0.001 || aabb.max.y > bauInnerBox.max.y + 0.001 ||
-          aabb.min.z < bauInnerBox.min.z - 0.001 || aabb.max.z > bauInnerBox.max.z + 0.001) {
-          continue;
+          // 3. Top of item (Y+) - handled by computeStackY, but we need base coords
+          candidates.push({ x: (b.min.x + b.max.x) / 2, z: (b.min.z + b.max.z) / 2 });
         }
 
-        // 2. Check collisions
-        const collide = existingAABBs.some(o => aabbIntersect(aabb, o));
-        if (collide) continue;
+        for (const cand of candidates) {
+          // 1. Tight Pack
+          const snap = tightPack(cand.x, cand.z, sx, sz, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
+          let x = snap.x;
+          let z = snap.z;
 
-        // 3. Check support (Gravity)
-        // If y > 0 (approx), it must be on top of something.
-        if (aabb.min.y > 0.01) {
-          const supported = existingAABBs.some(o => aabbIsOnTop(aabb, o));
-          if (!supported) continue;
+          // 2. Compute Y
+          const y = computeStackY(existingItems, bauInnerBox, x, z, sx, sy, sz);
+
+          if (y !== null) {
+            // Score: Minimize X (back), then Y (bottom), then Z (left)
+            const score = (x * 10000) + (y * 100) + z;
+
+            if (score < bestScore) {
+              bestScore = score;
+              bestPos = { x, y, z };
+              bestRot = orient.r;
+              bestDims = { x: sx, y: sy, z: sz };
+            }
+          }
         }
-
-        // Found valid spot
-        bestPos = pos;
-        break;
       }
 
       if (bestPos) {
@@ -774,48 +860,48 @@ export function initFullLoadEngine(opts = {}) {
         let mesh;
         try {
           if ((mercadoria.tipo || mercadoria.meta?.tipo) === "cilindrico") {
-            const outer = sx;
-            mesh = createCylinderMesh({ diameter: outer, height: sy, color: mercadoria.color || "#333" });
-            mesh.userData._size = { x: outer, y: sy, z: outer };
+            const outer = bestDims.x; // Diameter
+            mesh = createCylinderMesh({ diameter: outer, height: bestDims.y, color: mercadoria.color || "#333" });
+            mesh.userData._size = bestDims;
           } else {
-            mesh = createBoxMesh([sx, sy, sz], mercadoria.color || "#ff7a18");
-            mesh.userData._size = { x: sx, y: sy, z: sz };
+            mesh = createBoxMesh([bestDims.x, bestDims.y, bestDims.z], mercadoria.color || "#ff7a18");
+            mesh.userData._size = bestDims;
           }
 
           mesh.position.set(bestPos.x, bestPos.y, bestPos.z);
+          mesh.rotation.y = bestRot; // Apply rotation
+
           mesh.userData.colocId = colocId;
           mesh.userData.meta = mercadoria;
 
-          const finalAABB = makeAABBForSizeAt(mesh.userData._size, mesh.position);
-
           scene.add(mesh);
 
-          const entry = {
-            mesh,
-            data: {
-              id: colocId,
-              position: [bestPos.x, bestPos.y, bestPos.z],
-              rotation: [0, 0, 0],
-              scale: [sx, sy, sz],
-              meta: mercadoria,
-            },
-            aabb: finalAABB,
-          };
-
+          const entry = { mesh, data: mercadoria, aabb: makeAABBForSizeAt(mesh.userData._size, mesh.position) };
           placed.set(colocId, entry);
-          existingAABBs.push(finalAABB); // Add to local collision list for next item in loop
+          existingItems.push(entry);
 
-          placedResults.push({ id: colocId, position: [bestPos.x, bestPos.y, bestPos.z], scale: [sx, sy, sz] });
+          placedResults.push({
+            id: colocId,
+            position: [bestPos.x, bestPos.y, bestPos.z],
+            rotation: [0, bestRot, 0],
+            scale: [bestDims.x, bestDims.y, bestDims.z],
+            tipo: mercadoria.tipo || "caixa",
+            meta: mercadoria
+          });
+
         } catch (err) {
-          console.error("Erro ao criar mesh em addMercadoriaAuto:", err);
+          console.error("Erro ao criar mesh auto:", err);
         }
       } else {
-        console.warn("❌ Não foi possível colocar mercadoria automaticamente — sem espaço ou suporte.");
+        console.warn("❌ Não foi possível colocar mercadoria automaticamente — sem espaço.");
       }
     }
 
-    // return placed results so caller (React) can persist to Firestore if desired
     return placedResults;
+  }
+
+  function setGhostObject(merc) {
+    setGhostMeta(merc);
   }
 
   // small helper to fully clear scene placements (keeps bau)
@@ -828,39 +914,49 @@ export function initFullLoadEngine(opts = {}) {
     ghost.visible = false;
   }
 
-  // wrappers that external code may want to call
-  function setBauDimensions(Lcm, Hcm, Wcm, id = null) {
-    // Menu sends L,H,W already in meters? In your Menu3D you sent L,H,W computed as /100;
-    // We'll accept either meters or centimeters: heuristics: if > 10 assume cm; if <=10 assume meters.
-    const toMeters = (v) => {
-      if (v == null) return 0;
-      const n = Number(v);
-      if (n > 10) return cmToM(n); // treat as cm
-      return n; // treat as meters
-    };
-    // note: order of inputs can be any; normalize+order so the largest becomes comprimento (L)
-    const raw = { L: Lcm, W: Wcm, H: Hcm };
-    // Also accept cases where user passed comprimento, largura, altura in any order: try to normalize
-    const tbInput = {
-      L: raw.L ?? Lcm,
-      W: raw.W ?? Wcm,
-      H: raw.H ?? Hcm
-    };
-    // convert to numeric cms (or meters depending on heuristic)
-    const a = toMeters(tbInput.L) * 100; // back to cm (we call setBau expecting cm fields)
-    const b = toMeters(tbInput.W) * 100;
-    const c = toMeters(tbInput.H) * 100;
-    // normalize and order using same helper logic (we'll reuse normalizeAndOrderBau by passing cms)
-    const ordered = normalizeAndOrderBau({ L: a, W: b, H: c });
-    setBau({
-      tamanhoBau: { L: ordered.L, W: ordered.W, H: ordered.H },
-      tamanhoBau_m: { L: cmToM(ordered.L), W: cmToM(ordered.W), H: cmToM(ordered.H) },
-      id,
-    });
-  }
+  // Helper to capture snapshot from specific view
+  function captureSnapshot(view = "iso") {
+    if (!bauInnerBox) return null;
 
-  function setGhostObject(merc) {
-    setGhostMeta(merc);
+    const L = bauInnerBox.max.x;
+    const W = bauInnerBox.max.z;
+    const H = bauInnerBox.max.y;
+
+    // Save current camera state
+    const oldPos = camera.position.clone();
+    const oldQuat = camera.quaternion.clone();
+    const oldTarget = controls.target.clone();
+
+    // Set up new view
+    controls.target.set(L / 2, H / 2, W / 2);
+
+    if (view === "iso") {
+      camera.position.set(-L * 0.5, H * 3, W * 2.5);
+    } else if (view === "top") {
+      camera.position.set(L / 2, H * 4, W / 2);
+    } else if (view === "side") {
+      // Side view (from Z)
+      camera.position.set(L / 2, H / 2, W * 3);
+    } else if (view === "back") {
+      // Back view (looking from X=0 towards L)
+      camera.position.set(-L, H / 2, W / 2);
+    }
+
+    camera.lookAt(controls.target);
+    controls.update();
+
+    // Render
+    renderer.render(scene, camera);
+    const dataURL = renderer.domElement.toDataURL("image/png");
+
+    // Restore
+    camera.position.copy(oldPos);
+    camera.quaternion.copy(oldQuat);
+    controls.target.copy(oldTarget);
+    controls.update();
+    renderer.render(scene, camera); // Re-render original view
+
+    return dataURL;
   }
 
   // expose API for this engine instance
@@ -874,13 +970,9 @@ export function initFullLoadEngine(opts = {}) {
     placeGhostAtWorld,
     focusCamera,
     destroy,
-    resolveCollisionCandidate: (size, pos) => {
-      const aabb = makeAABBForSizeAt(size, pos);
-      const others = getOthersAABBs();
-      return resolveCollisionCandidate(aabb, others, bauInnerBox);
-    },
     addMercadoriaAuto,
     clearScene,
+    captureSnapshot
   };
 
   // store module-level pointer for wrapper exports
@@ -892,7 +984,7 @@ export function initFullLoadEngine(opts = {}) {
 /* -----------------------
  Module-level wrappers
  These allow importing functions directly:
-      import { initFullLoadEngine, clearScene, setBauDimensions, setGhostObject, addMercadoriaAuto } from "./fullLoadEngine";
+      import { initFullLoadEngine, clearScene, setBauDimensions, setGhostObject, addMercadoriaAuto, captureSnapshot } from "./fullLoadEngine";
 ------------------------*/
 export function clearScene() {
   if (!_engineAPI) {
@@ -900,6 +992,14 @@ export function clearScene() {
     return;
   }
   _engineAPI.clearScene();
+}
+
+export function captureSnapshot(view) {
+  if (!_engineAPI) {
+    console.warn("captureSnapshot: engine not initialized");
+    return null;
+  }
+  return _engineAPI.captureSnapshot(view);
 }
 
 export function setBauDimensions(Lcm, Hcm, Wcm, id = null) {

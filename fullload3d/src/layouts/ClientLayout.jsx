@@ -1,12 +1,14 @@
 // src/layouts/ClientLayout.jsx
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { auth, db } from "../services/firebaseConfig";
 import { signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
+import { Home, Package, Truck, Box, Users, LogOut, Box as BoxIcon } from "lucide-react";
 
 export default function ClientLayout({ children }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const user = auth.currentUser;
 
   const [nomeEmpresa, setNomeEmpresa] = useState("FullLoad");
@@ -17,7 +19,6 @@ export default function ClientLayout({ children }) {
       if (!user) return;
 
       try {
-        // Supondo que cada usuário tenha o ID da empresa salvo em auth ou localStorage
         const empresaId = localStorage.getItem("empresaId");
         if (!empresaId) return;
 
@@ -46,63 +47,111 @@ export default function ClientLayout({ children }) {
     }
   };
 
+  const isActive = (path) => location.pathname === path;
+
+  const navItems = [
+    { path: "/dashboard", label: "Painel", icon: Home },
+    { path: "/carregamento", label: "Carregamento", icon: Package },
+    { path: "/mercadoria", label: "Mercadoria", icon: Box },
+    { path: "/UserClient", label: "Usuários", icon: Users },
+    { path: "/Caminhao", label: "Caminhões", icon: Truck },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-100">
-      {/* 🔥 TOPBAR */}
-      <div className="w-full bg-white border-b shadow-sm">
-        <div className="max-w-6xl mx-auto px-6 py-3 flex items-center justify-between">
-          {/* LOGO */}
-          <div className="flex items-center gap-2">
-            <img
-              src={logoEmpresa}
-              alt={nomeEmpresa}
-              className="w-10 h-10 object-contain rounded"
-            />
-            <span className="font-bold text-xl text-orange-600">{nomeEmpresa}</span>
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100">
+      {/* Modern Topbar */}
+      <div className="w-full bg-white border-b border-slate-200 shadow-sm sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            {/* Logo */}
+            <div className="flex items-center gap-3">
+              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center shadow-lg">
+                <img
+                  src={logoEmpresa}
+                  alt={nomeEmpresa}
+                  className="w-8 h-8 object-contain"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.parentElement.innerHTML = '<span class="text-white font-bold text-xl">FL</span>';
+                  }}
+                />
+              </div>
+              <div>
+                <span className="font-bold text-xl text-slate-900">{nomeEmpresa}</span>
+                <p className="text-xs text-slate-500">Sistema de Gestão</p>
+              </div>
+            </div>
+
+            {/* Navigation */}
+            <nav className="hidden md:flex items-center gap-2">
+              {navItems.map(({ path, label, icon: Icon }) => (
+                <Link
+                  key={path}
+                  to={path}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-all ${isActive(path)
+                    ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md"
+                    : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                    }`}
+                >
+                  <Icon className="w-4 h-4" />
+                  {label}
+                </Link>
+              ))}
+            </nav>
+
+            {/* User Actions */}
+            <div className="flex items-center gap-3">
+              {/* FullLoad3D Button */}
+              <Link
+                to="/FullLoad"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-white shadow-lg shadow-orange-500/30 bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 transition-all transform hover:scale-105"
+              >
+                <BoxIcon className="w-5 h-5" />
+                FullLoad3D
+              </Link>
+
+              {/* User Info */}
+              <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-slate-100 rounded-lg">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-slate-600 to-slate-700 flex items-center justify-center text-white font-bold text-sm">
+                  {(user?.displayName || user?.email || "U")[0].toUpperCase()}
+                </div>
+                <span className="text-sm font-medium text-slate-700">
+                  {user?.displayName || user?.email?.split('@')[0] || "Usuário"}
+                </span>
+              </div>
+
+              {/* Logout Button */}
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white rounded-lg font-semibold shadow-md transition-all"
+              >
+                <LogOut className="w-4 h-4" />
+                <span className="hidden sm:inline">Sair</span>
+              </button>
+            </div>
           </div>
 
-          {/* MENU */}
-          <nav className="flex items-center gap-6">
-            <Link to="/dashboard" className="text-gray-700 hover:text-orange-600 font-medium">Painel</Link>
-            <Link to="/carregamento" className="text-gray-700 hover:text-orange-600 font-medium">Carregamento</Link>
-            <Link to="/mercadoria" className="text-gray-700 hover:text-orange-600 font-medium">Mercadoria</Link>
-            <Link to="/UserClient" className="text-gray-700 hover:text-orange-600 font-medium">Usuários</Link>
-            <Link to="/Caminhao" className="text-gray-700 hover:text-orange-600 font-medium">Caminhões</Link>
-
-            
-          </nav>
-
-          {/* USUÁRIO E LOGOUT */}
-<div className="flex items-center gap-4">
-
-  {/* 🔥 Botão FullLoad3D */}
-  <Link
-    to="/FullLoad"
-    className="px-4 py-1.5 rounded-lg font-semibold text-white shadow
-               bg-gradient-to-r from-orange-600 to-orange-700
-               hover:from-orange-700 hover:to-orange-800 
-               hover:shadow-md transition-all"
-  >
-    FullLoad3D
-  </Link>
-
-  <span className="text-gray-700 font-medium">
-    {user ? user.displayName || user.email : "Convidado"}
-  </span>
-
-  <button
-    onClick={handleLogout}
-    className="px-3 py-1 bg-red-600 hover:bg-red-500 text-white rounded text-sm"
-  >
-    Sair
-  </button>
-</div>
-
+          {/* Mobile Navigation */}
+          <div className="md:hidden mt-4 flex gap-2 overflow-x-auto pb-2">
+            {navItems.map(({ path, label, icon: Icon }) => (
+              <Link
+                key={path}
+                to={path}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold whitespace-nowrap transition-all ${isActive(path)
+                  ? "bg-gradient-to-r from-orange-500 to-orange-600 text-white shadow-md"
+                  : "bg-white text-slate-600 hover:bg-slate-100"
+                  }`}
+              >
+                <Icon className="w-4 h-4" />
+                {label}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* CONTEÚDO DAS PÁGINAS */}
-      <div className="max-w-6xl mx-auto px-6 py-8">{children}</div>
+      {/* Content */}
+      <div className="w-full">{children}</div>
     </div>
   );
 }

@@ -1,167 +1,287 @@
-// src/fullLoad3d/fullLoadUtils.js
 import * as THREE from "three";
 
-/**
- * Conversions & small helpers
- */
-export const cmToM = (v) => {
-  const n = Number(v);
-  if (Number.isNaN(n)) return 0;
-  return n / 100;
-};
+// ===========================
+// CONVERSIONS
+// ===========================
+export function cmToM(cm) {
+  return (cm || 0) / 100;
+}
 
-export const round2 = (v) => {
-  const n = Number(v) || 0;
-  return Math.round((n + Number.EPSILON) * 100) / 100;
-};
+export function mToCm(m) {
+  return (m || 0) * 100;
+}
 
-export const snap = (v, step = 0.05) => {
-  const n = Number(v) || 0;
-  return Math.round(n / step) * step;
-};
+// ===========================
+// GEOMETRY HELPERS
+// ===========================
 
-/**
- * Clamp a proposed position so the box (size) stays inside bauBox
- * bauBox = { min: {x,y,z}, max: {x,y,z} }
- * size = { x,y,z } (dimensions in meters)
- */
-export function clampInsideBau(pos, size, bauBox) {
-  if (!bauBox) return pos;
-  const halfX = (size.x || 0) / 2;
-  const halfY = (size.y || 0) / 2;
-  const halfZ = (size.z || 0) / 2;
+export function createBoxMesh(size, color) {
+  const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  const material = new THREE.MeshStandardMaterial({
+    color: color,
+    roughness: 0.5,
+    metalness: 0.1,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
 
-  const x = Math.min(Math.max(pos.x, bauBox.min.x + halfX), bauBox.max.x - halfX);
-  const y = Math.min(Math.max(pos.y, bauBox.min.y + halfY), bauBox.max.y - halfY);
-  const z = Math.min(Math.max(pos.z, bauBox.min.z + halfZ), bauBox.max.z - halfZ);
+  // Add edges (outline)
+  const edges = new THREE.EdgesGeometry(geometry);
+  const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+  mesh.add(line);
+
+  return mesh;
+}
+
+export function createCylinderMesh({ diameter, height, color }) {
+  const geometry = new THREE.CylinderGeometry(diameter / 2, diameter / 2, height, 32);
+  const material = new THREE.MeshStandardMaterial({
+    color: color,
+    roughness: 0.5,
+    metalness: 0.1,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+
+  // Add edges (outline)
+  // For cylinder, EdgesGeometry might be too busy with vertical lines. 
+  // Let's try it, or use a threshold angle.
+  const edges = new THREE.EdgesGeometry(geometry, 30); // Threshold angle to avoid too many lines
+  const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+  mesh.add(line);
+
+  // Rotate to stand up if needed? Three.js cylinder is Y-up by default, which matches our logic.
+  return mesh;
+}
+
+export function createTireMesh({ radius, width, color }) {
+  // Tire is a cylinder rotated 90deg on Z usually, or just a cylinder
+  // Let's assume simple cylinder for now
+  const geometry = new THREE.CylinderGeometry(radius, radius, width, 32);
+  geometry.rotateZ(Math.PI / 2); // Rotate to lie on side
+  const material = new THREE.MeshStandardMaterial({
+    color: color || 0x333333,
+    roughness: 0.9,
+  });
+  const mesh = new THREE.Mesh(geometry, material);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  return mesh;
+}
+
+// ===========================
+// MATH / PACKING HELPERS
+// ===========================
+
+export function round2(num) {
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+}
+
+export function snap(val, step = 0.05) {
+  return Math.round(val / step) * step;
+}
+
+export function clamp(val, min, max) {
+  return Math.max(min, Math.min(max, val));
+}
+
+export function clampInsideBau(pos, size, bauBox, margin = 0) {
+  // pos is center
+  // size is {x, y, z}
+  // bauBox is { min: {x,y,z}, max: {x,y,z} }
+
+  const halfX = size.x / 2;
+  const halfY = size.y / 2;
+  const halfZ = size.z / 2;
+
+  // Apply margin to ensure it's strictly inside
+  const minX = bauBox.min.x + halfX + margin;
+  const maxX = bauBox.max.x - halfX - margin;
+  const minY = bauBox.min.y + halfY + margin;
+  const maxY = bauBox.max.y - halfY - margin;
+  const minZ = bauBox.min.z + halfZ + margin;
+  const maxZ = bauBox.max.z - halfZ - margin;
+
+  // Handle case where item is larger than box (clamp to center or min)
+  const x = (minX > maxX) ? (bauBox.min.x + bauBox.max.x) / 2 : clamp(pos.x, minX, maxX);
+  const y = (minY > maxY) ? (bauBox.min.y + bauBox.max.y) / 2 : clamp(pos.y, minY, maxY);
+  const z = (minZ > maxZ) ? (bauBox.min.z + bauBox.max.z) / 2 : clamp(pos.z, minZ, maxZ);
 
   return { x, y, z };
 }
 
-/**
- * Create a Box mesh sized in meters: scale = [sx, sy, sz]
- */
-export function createBoxMesh(scale = [1, 1, 1], color = "#ff7a18") {
-  const [sx, sy, sz] = scale.map((v) => Number(v) || 0.001);
-  const geo = new THREE.BoxGeometry(sx, sy, sz);
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.6,
-    metalness: 0.04,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  // userData placeholders
-  mesh.userData = mesh.userData || {};
-  mesh.userData._size = { x: sx, y: sy, z: sz };
-  return mesh;
-}
-
-/**
- * Create a "tire" visual using TorusGeometry.
- * outerDiameter, tube are in meters.
- * outerDiameter = total outside diameter (m)
- * tube = thickness of the ring (m)
- */
-export function createTireMesh({ outerDiameter = 1.0, tube = 0.2, color = "#333" } = {}) {
-  // torus radius parameters: radius = outerDiameter/2, tube = tube
-  const radius = Math.max(outerDiameter / 2, 0.001);
-  const tubeRadius = Math.max(tube / 2, 0.001);
-
-  // torus geometry: (radius, tubeRadius, radialSegments, tubularSegments)
-  const geo = new THREE.TorusGeometry(radius, tubeRadius, 16, 48);
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.7,
-    metalness: 0.02,
-  });
-
-  const mesh = new THREE.Mesh(geo, mat);
-  // orient torus so its hole axis is along X (so it stands like a tire)
-  mesh.rotation.x = Math.PI / 2;
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-
-  mesh.userData = mesh.userData || {};
-  // approximate AABB size for collision/stacking (diameter × height)
-  mesh.userData._size = { x: outerDiameter, y: tube, z: outerDiameter };
-  return mesh;
-}
-
-/**
- * Make an AABB Box3 for a given size (meters) centered at position (THREE.Vector3 or plain {x,y,z})
- */
-export function makeAABBForSizeAt(size = { x: 0.1, y: 0.1, z: 0.1 }, pos = { x: 0, y: 0, z: 0 }) {
-  const half = { x: (size.x || 0) / 2, y: (size.y || 0) / 2, z: (size.z || 0) / 2 };
-  const min = new THREE.Vector3(pos.x - half.x, pos.y - half.y, pos.z - half.z);
-  const max = new THREE.Vector3(pos.x + half.x, pos.y + half.y, pos.z + half.z);
-  return new THREE.Box3(min, max);
-}
-
-/**
- * AABB intersection helper
- * Accepts two THREE.Box3
- */
-export function aabbIntersect(a, b) {
-  if (!a || !b) return false;
-  // THREE.Box3 exposes intersectsBox
-  try {
-    return a.intersectsBox(b);
-  } catch (e) {
-    // fallback to manual test
-    return !(
-      a.max.x <= b.min.x ||
-      a.min.x >= b.max.x ||
-      a.max.y <= b.min.y ||
-      a.min.y >= b.max.y ||
-      a.max.z <= b.min.z ||
-      a.min.z >= b.max.z
-    );
+// AABB Helpers
+export function getAABB(mesh) {
+  // If we stored size in userData, use it for precision
+  if (mesh.userData._size) {
+    const s = mesh.userData._size;
+    const p = mesh.position;
+    return {
+      min: { x: p.x - s.x / 2, y: p.y - s.y / 2, z: p.z - s.z / 2 },
+      max: { x: p.x + s.x / 2, y: p.y + s.y / 2, z: p.z + s.z / 2 },
+    };
   }
+  // Fallback to bounding box
+  const box = new THREE.Box3().setFromObject(mesh);
+  return { min: box.min, max: box.max };
+}
+
+export function makeAABBForSizeAt(size, pos) {
+  return {
+    min: { x: pos.x - size.x / 2, y: pos.y - size.y / 2, z: pos.z - size.z / 2 },
+    max: { x: pos.x + size.x / 2, y: pos.y + size.y / 2, z: pos.z + size.z / 2 },
+  };
+}
+
+export function aabbIntersect(a, b) {
+  return (
+    a.min.x < b.max.x &&
+    a.max.x > b.min.x &&
+    a.min.y < b.max.y &&
+    a.max.y > b.min.y &&
+    a.min.z < b.max.z &&
+    a.max.z > b.min.z
+  );
+}
+
+export function aabbIsOnTop(topBox, bottomBox) {
+  // Check if topBox is resting on bottomBox
+  // 1. Vertical proximity
+  const vert = Math.abs(topBox.min.y - bottomBox.max.y) < 0.01;
+  if (!vert) return false;
+
+  // 2. Horizontal overlap
+  const overlapX = topBox.max.x > bottomBox.min.x && topBox.min.x < bottomBox.max.x;
+  const overlapZ = topBox.max.z > bottomBox.min.z && topBox.min.z < bottomBox.max.z;
+
+  return overlapX && overlapZ;
 }
 
 /**
- * Check if box A is resting on top of box B.
- * Criteria:
- * 1. A.min.y is approximately B.max.y
- * 2. They overlap in the X-Z plane.
+ * Tight Pack Heuristic
+ * Tries to snap 'x' and 'z' to existing edges to minimize gaps.
  */
-export function aabbIsOnTop(a, b) {
-  if (!a || !b) return false;
+export function tightPack(x, z, fx, fz, L, W, existingItems, excludeMesh = null) {
+  // Candidates from walls
+  const xCands = [fx / 2, L - fx / 2];
+  const zCands = [fz / 2, W - fz / 2];
 
-  // Vertical proximity check (epsilon 0.01m)
-  const vertDiff = Math.abs(a.min.y - b.max.y);
-  if (vertDiff > 0.02) return false;
+  for (const item of existingItems) {
+    if (item.mesh === excludeMesh) continue;
+    const b = item.aabb || getAABB(item.mesh);
+    const icx = (b.min.x + b.max.x) / 2;
+    const icz = (b.min.z + b.max.z) / 2;
+    const ifx = b.max.x - b.min.x;
+    const ifz = b.max.z - b.min.z;
 
-  // Horizontal overlap check
-  const overlapX = Math.max(0, Math.min(a.max.x, b.max.x) - Math.max(a.min.x, b.min.x));
-  const overlapZ = Math.max(0, Math.min(a.max.z, b.max.z) - Math.max(a.min.z, b.min.z));
+    // If overlaps in Z, add X candidates
+    if (Math.abs(z - icz) <= (fz / 2 + ifz / 2) + 0.001) {
+      xCands.push(icx - (ifx / 2 + fx / 2));
+      xCands.push(icx + (ifx / 2 + fx / 2));
+    }
+    // If overlaps in X, add Z candidates
+    if (Math.abs(x - icx) <= (fx / 2 + ifx / 2) + 0.001) {
+      zCands.push(icz - (ifz / 2 + fz / 2));
+      zCands.push(icz + (ifz / 2 + fz / 2));
+    }
+  }
 
-  return (overlapX > 0.01 && overlapZ > 0.01);
+  // Find closest X
+  let xs = xCands[0];
+  let xd = Math.abs(x - xs);
+  for (const v of xCands) {
+    const d = Math.abs(x - v);
+    if (d < xd) { xd = d; xs = v; }
+  }
+
+  // Find closest Z
+  let zs = zCands[0];
+  let zd = Math.abs(z - zs);
+  for (const v of zCands) {
+    const d = Math.abs(z - v);
+    if (d < zd) { zd = d; zs = v; }
+  }
+
+  // Clamp to container
+  xs = clamp(xs, fx / 2, L - fx / 2);
+  zs = clamp(zs, fz / 2, W - fz / 2);
+
+  return { x: xs, z: zs };
 }
 
 /**
- * Create a simple Cylinder mesh (e.g. for drums, stacked tires, etc.)
- * diameter, height in meters
+ * Support Top Heuristic
+ * Finds the highest Y below the given footprint (x, z, fx, fz).
  */
-export function createCylinderMesh({ diameter = 1, height = 1, color = "#333" } = {}) {
-  const radius = Math.max(diameter / 2, 0.001);
-  const h = Math.max(height, 0.001);
-  const geo = new THREE.CylinderGeometry(radius, radius, h, 32);
-  const mat = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.6,
-    metalness: 0.1,
-  });
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
-  // Cylinder is created centered at (0,0,0) with height along Y.
-  // We usually want pivot at bottom? Or center is fine if we position it at y = height/2.
-  // The engine positions items at center.y = sy/2. So center pivot is correct.
+export function supportTopAt(cx, cz, fx, fz, existingItems, excludeMesh = null) {
+  let top = 0;
+  for (const item of existingItems) {
+    if (item.mesh === excludeMesh) continue;
+    const b = item.aabb || getAABB(item.mesh);
 
-  mesh.userData = mesh.userData || {};
-  mesh.userData._size = { x: diameter, y: height, z: diameter };
-  return mesh;
+    // Check overlap in XZ plane
+    // Item center
+    const icx = (b.min.x + b.max.x) / 2;
+    const icz = (b.min.z + b.max.z) / 2;
+    // Item size
+    const ifx = b.max.x - b.min.x;
+    const ifz = b.max.z - b.min.z;
+
+    const overlapX = Math.abs(icx - cx) <= (ifx / 2 + fx / 2) - 0.00001;
+    const overlapZ = Math.abs(icz - cz) <= (ifz / 2 + fz / 2) - 0.00001;
+
+    if (overlapX && overlapZ) {
+      top = Math.max(top, b.max.y);
+    }
+  }
+  return top;
+}
+
+export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz) {
+  // 1. Floor check
+  const floorY = fy / 2;
+  let currentY = floorY;
+
+  // 2. Find highest support
+  // We only stack if we have significant overlap (e.g. > 20% of footprint)
+  // Otherwise, if we overlap slightly, it's a collision (return null).
+
+  const myArea = fx * fz;
+  const minSupportArea = myArea * 0.20; // 20% threshold
+
+  for (const item of existingItems) {
+    const b = item.aabb || getAABB(item.mesh);
+
+    // Check overlap
+    const icx = (b.min.x + b.max.x) / 2;
+    const icz = (b.min.z + b.max.z) / 2;
+    const ifx = b.max.x - b.min.x;
+    const ifz = b.max.z - b.min.z;
+
+    // Overlap width/depth
+    const overlapW = Math.max(0, Math.min(x + fx / 2, b.max.x) - Math.max(x - fx / 2, b.min.x));
+    const overlapD = Math.max(0, Math.min(z + fz / 2, b.max.z) - Math.max(z - fz / 2, b.min.z));
+
+    if (overlapW > 0.001 && overlapD > 0.001) {
+      const area = overlapW * overlapD;
+
+      if (area >= minSupportArea) {
+        // Valid support
+        if (b.max.y >= currentY - 0.01) {
+          currentY = Math.max(currentY, b.max.y + fy / 2);
+        }
+      } else {
+        // Insignificant overlap -> Collision!
+        // We can't stack on it (unsafe), and we can't be inside it.
+        return null;
+      }
+    }
+  }
+
+  // 3. Ceiling check
+  if (currentY + fy / 2 > bauBox.max.y) return null;
+
+  return currentY;
 }
