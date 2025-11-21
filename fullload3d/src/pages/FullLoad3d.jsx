@@ -178,178 +178,126 @@ export default function FullLoad3D() {
 
     // Footer on last page
     doc.setFontSize(8);
-    doc.text("Gerado por FullLoad 3D", 10, pageHeight - 10);
+    // =============================
+    return (
+      <div className="flex w-full h-screen bg-gray-50 overflow-hidden font-sans">
 
-    doc.save(`plano_carga_${Date.now()}.pdf`);
-  };
+        {/* MENU LATERAL */}
+        <Menu3D />
 
-  const handleSalvar = async () => {
-    console.log("💾 Iniciando salvamento do plano...");
-    const items = getPlacedItems();
-    const bau = getBauState();
+        {/* AREA PRINCIPAL */}
+        <div className="flex-1 relative flex flex-col h-full">
 
-    console.log("📦 Itens:", items);
-    console.log("🚛 Baú:", bau);
-
-    if (!items || items.length === 0) {
-      alert("O baú está vazio ou a engine não está pronta.");
-      return;
-    }
-
-    const nome = window.prompt("Nome do plano de carga:", `Plano ${new Date().toLocaleString()}`);
-    if (!nome) return;
-
-    try {
-      const empresaId = localStorage.getItem("empresaId");
-      console.log("🏢 Empresa ID:", empresaId);
-
-      if (!empresaId) {
-        alert("ERRO: Empresa não identificada (empresaId is missing).");
-        return;
-      }
-
-      const docData = {
-        nome,
-        dataCriacao: new Date().toISOString(),
-        bau,
-        items,
-        thumbnail: captureSnapshot("iso")
-      };
-
-      console.log("📝 Salvando documento:", docData);
-
-      await addDoc(collection(db, "empresas", empresaId, "planos_carga"), docData);
-
-      console.log("✅ Plano salvo com sucesso!");
-      alert("Plano salvo com sucesso!");
-    } catch (err) {
-      console.error("❌ Erro ao salvar plano:", err);
-      alert(`Erro ao salvar plano: ${err.message}`);
-    }
-  };
-
-  // =============================
-  //   LAYOUT: Menu + Tela 3D
-  // =============================
-  return (
-    <div className="flex w-full h-screen bg-gray-50 overflow-hidden font-sans">
-
-      {/* MENU LATERAL */}
-      <Menu3D />
-
-      {/* AREA PRINCIPAL */}
-      <div className="flex-1 relative flex flex-col h-full">
-
-        {/* TELA 3D */}
-        <div className="flex-1 relative bg-gray-50 m-3 rounded-3xl shadow-inner border border-white/50 overflow-hidden">
-          <canvas
-            ref={canvasRef}
-            className="w-full h-full block outline-none"
-          />
-
-          {/* Floating Toolbar */}
-          <div className="absolute top-6 right-6 flex flex-col gap-3 z-10">
-            <ActionButton
-              icon={<ArrowLeft className="w-5 h-5" />}
-              label="Voltar"
-              onClick={() => navigate("/Dashboard")}
-              color="bg-white text-gray-700 hover:bg-gray-50"
+          {/* TELA 3D */}
+          <div className="flex-1 relative bg-gray-50 m-3 rounded-3xl shadow-inner border border-white/50 overflow-hidden">
+            <canvas
+              ref={canvasRef}
+              className="w-full h-full block outline-none"
             />
-            <div className="h-px bg-gray-300 my-1 mx-2"></div>
-            <ActionButton
-              icon={<RefreshCw className="w-5 h-5" />}
-              label="Novo Plano"
-              onClick={handleNewPlan}
-              color="bg-white text-gray-700 hover:bg-gray-50"
-            />
-            <ActionButton
-              icon={<Camera className="w-5 h-5" />}
-              label="Screenshot"
-              onClick={handleScreenshot}
-              color="bg-white text-gray-700 hover:bg-gray-50"
-            />
-            <ActionButton
-              icon={<Save className="w-5 h-5" />}
-              label="Salvar"
-              onClick={handleSalvar}
-              color="bg-green-600 text-white hover:bg-green-700"
-            />
-            <ActionButton
-              icon={<FileDown className="w-5 h-5" />}
-              label="Exportar PDF"
-              onClick={handleExportPDF}
-              color="bg-blue-600 text-white hover:bg-blue-700"
-            />
-            <div className="h-px bg-gray-300 my-1 mx-2"></div>
-            <ActionButton
-              icon={<Info className="w-5 h-5" />}
-              label="Atalhos"
-              onClick={() => setShowShortcuts(true)}
-              color="bg-white text-gray-700 hover:bg-gray-50"
-            />
-          </div>
 
-          {/* View Indicator / Overlay Info */}
-          <div className="absolute bottom-6 left-6 pointer-events-none">
-            <div className="bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 text-xs font-medium text-gray-600 flex items-center gap-2">
-              <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-              Engine 3D Ativa
+            {/* Floating Toolbar */}
+            <div className="absolute top-6 right-6 flex flex-col gap-3 z-10">
+              <ActionButton
+                icon={<ArrowLeft className="w-5 h-5" />}
+                label="Voltar"
+                onClick={() => navigate("/Dashboard")}
+                color="bg-white text-gray-700 hover:bg-gray-50"
+              />
+              <div className="h-px bg-gray-300 my-1 mx-2"></div>
+              <ActionButton
+                icon={<RefreshCw className="w-5 h-5" />}
+                label="Novo Plano"
+                onClick={handleNewPlan}
+                color="bg-white text-gray-700 hover:bg-gray-50"
+              />
+              <ActionButton
+                icon={<Camera className="w-5 h-5" />}
+                label="Screenshot"
+                onClick={handleScreenshot}
+                color="bg-white text-gray-700 hover:bg-gray-50"
+              />
+              <ActionButton
+                icon={<Save className="w-5 h-5" />}
+                label="Salvar"
+                onClick={handleSalvar}
+                color="bg-green-600 text-white hover:bg-green-700"
+              />
+              <ActionButton
+                icon={<FileDown className="w-5 h-5" />}
+                label="Exportar PDF"
+                onClick={handleExportPDF}
+                color="bg-blue-600 text-white hover:bg-blue-700"
+              />
+              <div className="h-px bg-gray-300 my-1 mx-2"></div>
+              <ActionButton
+                icon={<Info className="w-5 h-5" />}
+                label="Atalhos"
+                onClick={() => setShowShortcuts(true)}
+                color="bg-white text-gray-700 hover:bg-gray-50"
+              />
             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Shortcuts Modal */}
-      {showShortcuts && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-              <h3 className="font-bold text-gray-800">Atalhos do Teclado</h3>
-              <button onClick={() => setShowShortcuts(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <ShortcutKey k="R" desc="Rotacionar item (90°)" />
-              <ShortcutKey k="Espaço" desc="Alternar visualização (Iso/Top/Side)" />
-              <ShortcutKey k="G" desc="Alternar grade (Grid)" />
-              <ShortcutKey k="Delete" desc="Remover item selecionado" />
-              <ShortcutKey k="Setas" desc="Mover item selecionado (1cm)" />
-              <ShortcutKey k="PageUp/Down" desc="Ajustar altura do fantasma" />
-              <div className="text-xs text-gray-500 mt-4 pt-4 border-t border-gray-100">
-                <p>💡 Clique em um item para selecionar. Clique no chão para posicionar.</p>
+            {/* View Indicator / Overlay Info */}
+            <div className="absolute bottom-6 left-6 pointer-events-none">
+              <div className="bg-white/80 backdrop-blur-md px-4 py-2 rounded-full shadow-lg border border-white/50 text-xs font-medium text-gray-600 flex items-center gap-2">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                Engine 3D Ativa
               </div>
             </div>
           </div>
         </div>
-      )}
 
-    </div>
-  );
-}
+        {/* Shortcuts Modal */}
+        {showShortcuts && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+              <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                <h3 className="font-bold text-gray-800">Atalhos do Teclado</h3>
+                <button onClick={() => setShowShortcuts(false)} className="p-1 hover:bg-gray-200 rounded-full transition-colors">
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              <div className="p-6 space-y-4">
+                <ShortcutKey k="R" desc="Rotacionar item (90°)" />
+                <ShortcutKey k="Espaço" desc="Alternar visualização (Iso/Top/Side)" />
+                <ShortcutKey k="G" desc="Alternar grade (Grid)" />
+                <ShortcutKey k="Delete" desc="Remover item selecionado" />
+                <ShortcutKey k="Setas" desc="Mover item selecionado (1cm)" />
+                <ShortcutKey k="PageUp/Down" desc="Ajustar altura do fantasma" />
+                <div className="text-xs text-gray-500 mt-4 pt-4 border-t border-gray-100">
+                  <p>💡 Clique em um item para selecionar. Clique no chão para posicionar.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
-function ActionButton({ icon, label, onClick, color }) {
-  return (
-    <button
-      onClick={onClick}
-      className={`group flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg shadow-gray-900/5 transition-all duration-200 hover:scale-105 ${color}`}
-      title={label}
-    >
-      {icon}
-      <span className="font-medium text-sm hidden group-hover:block animate-in slide-in-from-right-2 duration-200 whitespace-nowrap">
-        {label}
-      </span>
-    </button>
-  );
-}
+      </div>
+    );
+  }
 
-function ShortcutKey({ k, desc }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-gray-600">{desc}</span>
-      <kbd className="px-2 py-1 bg-gray-100 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 min-w-[2rem] text-center">
-        {k}
-      </kbd>
-    </div>
-  );
-}
+  function ActionButton({ icon, label, onClick, color }) {
+    return (
+      <button
+        onClick={onClick}
+        className={`group flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg shadow-gray-900/5 transition-all duration-200 hover:scale-105 ${color}`}
+        title={label}
+      >
+        {icon}
+        <span className="font-medium text-sm hidden group-hover:block animate-in slide-in-from-right-2 duration-200 whitespace-nowrap">
+          {label}
+        </span>
+      </button>
+    );
+  }
+
+  function ShortcutKey({ k, desc }) {
+    return (
+      <div className="flex items-center justify-between">
+        <span className="text-sm text-gray-600">{desc}</span>
+        <kbd className="px-2 py-1 bg-gray-100 border border-gray-200 rounded-lg text-xs font-bold text-gray-700 min-w-[2rem] text-center">
+          {k}
+        </kbd>
+      </div>
+    );
+  }
