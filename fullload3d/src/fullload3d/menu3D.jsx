@@ -86,7 +86,7 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
     );
   };
 
-  // Limpar tudo no 3D
+  // Limpar tudo no 3Ds
   const limpar3D = () =>
     window.dispatchEvent(new CustomEvent("3d_clear"));
 
@@ -174,8 +174,8 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
                   key={type}
                   onClick={() => setFiltroTipo(type)}
                   className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors border ${filtroTipo === type
-                      ? "bg-orange-100 text-orange-700 border-orange-200"
-                      : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                    ? "bg-orange-100 text-orange-700 border-orange-200"
+                    : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
                     }`}
                 >
                   {type.charAt(0).toUpperCase() + type.slice(1)}
@@ -197,8 +197,8 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
                   onSelectMercadoria && onSelectMercadoria(m);
                 }}
                 className={`group p-3 rounded-xl border cursor-pointer transition-all duration-200 relative overflow-hidden ${mercadoriaSelecionada?.id === m.id
-                    ? "bg-orange-50 border-orange-200 shadow-sm ring-1 ring-orange-200"
-                    : "bg-white border-gray-100 hover:border-orange-200 hover:shadow-sm"
+                  ? "bg-orange-50 border-orange-200 shadow-sm ring-1 ring-orange-200"
+                  : "bg-white border-gray-100 hover:border-orange-200 hover:shadow-sm"
                   }`}
               >
                 <div className="flex justify-between items-start">
