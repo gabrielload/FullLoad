@@ -5,24 +5,12 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   build: {
+    target: 'esnext',
+    minify: 'esbuild',
     rollupOptions: {
       output: {
         manualChunks: undefined,
-      },
-      external: (id) => {
-        // Prevent bundling of native modules
-        return id.includes('@rollup/rollup') || id.includes('fsevents')
       }
-    },
-    commonjsOptions: {
-      transformMixedEsModules: true
-    },
-    target: 'esnext',
-    minify: 'esbuild'
-  },
-  optimizeDeps: {
-    esbuildOptions: {
-      target: 'esnext'
     }
   }
 })
