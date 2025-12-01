@@ -231,7 +231,7 @@ export function supportTopAt(cx, cz, fx, fz, existingItems, excludeMesh = null) 
   return top;
 }
 
-export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz) {
+export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz, currentType = "caixa") {
   // 1. Floor check
   const floorY = fy / 2;
   let currentY = floorY;
@@ -256,8 +256,21 @@ export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz) {
     const overlapW = Math.max(0, Math.min(x + fx / 2, b.max.x) - Math.max(x - fx / 2, b.min.x));
     const overlapD = Math.max(0, Math.min(z + fz / 2, b.max.z) - Math.max(z - fz / 2, b.min.z));
 
-    if (overlapW > 0.001 && overlapD > 0.001) {
+    // Use a slightly larger epsilon for "significant" overlap to avoid noise
+    const epsilon = 0.005;
+
+    if (overlapW > epsilon && overlapD > epsilon) {
       const area = overlapW * overlapD;
+
+      // Check for forbidden stacking: Box on Cylinder
+      const itemBelowType = item.data?.tipo || item.data?.meta?.tipo || "caixa";
+      if (currentType === "caixa" && itemBelowType === "cilindrico") {
+        // Forbidden: Box cannot stack on Cylinder
+        return null;
+      }
+
+      // Cylinder on Box is allowed.
+      // Cylinder on Cylinder is allowed.
 
       if (area >= minSupportArea) {
         // Valid support

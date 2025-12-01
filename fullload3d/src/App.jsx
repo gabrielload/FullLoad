@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./services/firebaseConfig";
 
+
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AdminPanel from "./pages/AdminPanel";
@@ -13,6 +14,10 @@ import Mercadoria from "./pages/Mercadoria";
 import UserClient from "./pages/UserCliente";
 import FullLoad from "./pages/FullLoad3d";
 import Caminhao from "./pages/Caminhoes";
+import MeuPlano from "./pages/MeuPlano";
+import Perfil from "./pages/Perfil";
+import Configuracoes from "./pages/Configuracoes";
+import Ajuda from "./pages/Ajuda";
 
 function ProtectedRoute({ children, allowed }) {
   const role = localStorage.getItem("role");
@@ -50,6 +55,7 @@ export default function App() {
   }
 
   return (
+
     <Routes>
       {/* Login */}
       <Route path="/" element={<Login />} />
@@ -100,7 +106,7 @@ export default function App() {
         }
       />
 
-       <Route
+      <Route
         path="/Mercadoria"
         element={
           <ProtectedRoute allowed={["user"]}>
@@ -124,7 +130,8 @@ export default function App() {
           </ProtectedRoute>
         }
       />
-      
+
+
       <Route
         path="/FullLoad"
         element={
@@ -134,9 +141,24 @@ export default function App() {
         }
       />
 
+      <Route
+        path="/meu-plano"
+        element={
+          <ProtectedRoute allowed={["user"]}>
+            <MeuPlano />
+          </ProtectedRoute>
+        }
+      />
+
+
+      {/* Fallback */}
+      <Route path="/perfil" element={<ProtectedRoute allowed={["user", "master"]}><Perfil /></ProtectedRoute>} />
+      <Route path="/configuracoes" element={<ProtectedRoute allowed={["user", "master"]}><Configuracoes /></ProtectedRoute>} />
+      <Route path="/ajuda" element={<ProtectedRoute allowed={["user", "master"]}><Ajuda /></ProtectedRoute>} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+
   );
 }

@@ -52,7 +52,7 @@ export function initFullLoadEngine(container, initialBau = null) {
 
   // 1. Scene & Camera
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xf9f9f9); // Off-white background
+  scene.background = new THREE.Color(0xffffff); // White background
 
   // Isometric-ish camera setup
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
@@ -101,12 +101,12 @@ export function initFullLoadEngine(container, initialBau = null) {
   fillLight.position.set(-10, 10, -10);
   scene.add(fillLight);
 
-  // Ground Plane (Asphalt)
+  // Ground Plane (Studio White)
   const groundGeo = new THREE.PlaneGeometry(200, 200);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x333333, roughness: 0.8, metalness: 0.2 });
+  const groundMat = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.1 });
   const ground = new THREE.Mesh(groundGeo, groundMat);
   ground.rotation.x = -Math.PI / 2;
-  ground.position.y = -0.1; // Below truck floor
+  ground.position.y = -0.02; // Slightly below truck floor
   ground.receiveShadow = true;
   scene.add(ground);
 
@@ -240,18 +240,19 @@ export function initFullLoadEngine(container, initialBau = null) {
       gz = clamped.z;
 
       // 3. Determine Y automatically (Gravity)
-      const validY = computeStackY(existingItems, bauInnerBox, gx, gz, size.x, size.y, size.z);
+      // Pass the type of the current ghost item to check stacking rules
+      const currentType = ghostMesh.userData._meta?.tipo || "caixa";
+      const validY = computeStackY(existingItems, bauInnerBox, gx, gz, size.x, size.y, size.z, currentType);
 
-      // 4. Adjacency Check
-      let isAdjacent = false;
-      if (validY !== null) {
-        isAdjacent = checkAdjacency({ x: gx, y: validY, z: gz }, size, existingItems, bauInnerBox);
-      }
+      // 4. Overlap Check (Strict)
+      const isOverlapping = checkOverlap({ x: gx, y: validY !== null ? validY : size.y / 2, z: gz }, size, existingItems);
 
       let gy;
-      if (validY !== null && isAdjacent) {
+      if (validY !== null && !isOverlapping) {
         gy = validY;
-        ghostMesh.material.color.setHex(ghostMesh.userData._meta?.color ? parseInt(ghostMesh.userData._meta.color.replace("#", "0x"), 16) : 0x0000aa);
+        // Use meta color or default
+        const colorHex = ghostMesh.userData._meta?.cor ? ghostMesh.userData._meta.cor : (ghostMesh.userData._meta?.color || "#0000aa");
+        ghostMesh.material.color.set(colorHex);
         ghostMesh.material.opacity = 0.5;
         ghost.userData.isValid = true;
       } else {
@@ -270,131 +271,21 @@ export function initFullLoadEngine(container, initialBau = null) {
   }
   renderer.domElement.addEventListener("pointermove", onPointerMove);
 
-  // Helper: Check if item touches wall or other items
-  function checkAdjacency(pos, size, existingItems, bauBox) {
-    const epsilon = 0.05; // 5cm tolerance
-
-    // 1. Wall Adjacency
-    const minZ = pos.z - size.z / 2;
-    const maxZ = pos.z + size.z / 2;
-    if (minZ <= epsilon) return true;
-    if (maxZ >= bauBox.max.z - epsilon) return true;
-
-    const minX = pos.x - size.x / 2;
-    const maxX = pos.x + size.x / 2;
-    if (minX <= epsilon) return true;
-    if (maxX >= bauBox.max.x - epsilon) return true;
-
-    // 2. Item Adjacency
+  // Helper: Check if item overlaps with others
+  function checkOverlap(pos, size, existingItems) {
     const myAABB = makeAABBForSizeAt(size, pos);
-    myAABB.min.x -= epsilon; myAABB.min.z -= epsilon;
-    myAABB.max.x += epsilon; myAABB.max.z += epsilon;
+    // Shrink slightly to avoid touching-is-overlapping
+    const epsilon = 0.005;
+    myAABB.min.x += epsilon; myAABB.min.y += epsilon; myAABB.min.z += epsilon;
+    myAABB.max.x -= epsilon; myAABB.max.y -= epsilon; myAABB.max.z -= epsilon;
 
     for (const item of existingItems) {
-      if (myAABB.intersectsBox(item.aabb)) {
+      // Use aabbIntersect helper instead of intersectsBox
+      if (aabbIntersect(myAABB, item.aabb)) {
         return true;
       }
     }
     return false;
-  }
-
-  // Wheel -> Adjust Height (Disabled)
-  function onWheel(e) { }
-  // renderer.domElement.addEventListener("wheel", onWheel, { passive: false });
-
-  // pointer down -> Place or Select
-  function onPointerDown(e) {
-    try {
-      const rect = renderer.domElement.getBoundingClientRect();
-      mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-      mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-
-      // 1. Handle Ghost Placement (Left Click)
-      if (e.button === 0 && ghost.visible) {
-        if (ghost.userData.isValid === false) {
-          console.warn("Posição inválida!");
-          return;
-        }
-
-        const ghostMesh = ghost.children[0];
-        if (ghostMesh) {
-          const pos = ghost.position.clone();
-          const meta = ghostMesh.userData._meta || ghostMesh.userData.meta || {};
-          const rot = ghostMesh.rotation;
-
-          placeManualInternal(pos, rot, meta);
-          return;
-        }
-      }
-
-      // 2. Selection
-      if (!ghost.visible || e.button !== 0) {
-        const meshes = Array.from(placed.values()).map((p) => p.mesh);
-        if (!meshes.length) {
-          clearHighlight();
-          return;
-        }
-        const ints = raycaster.intersectObjects(meshes, true);
-        if (ints.length) {
-          let root = ints[0].object;
-          while (root && !root.userData?.colocId) root = root.parent;
-          if (!root) {
-            clearHighlight();
-            return;
-          }
-          highlightSelect(root);
-        } else {
-          clearHighlight();
-        }
-      }
-    } catch (err) {
-      console.error("onPointerDown error:", err);
-    }
-  }
-  renderer.domElement.addEventListener("pointerdown", onPointerDown);
-
-  function placeManualInternal(pos, rotation, meta) {
-    const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `man_${Date.now()}`;
-
-    let mesh;
-    const tipo = meta.tipo || "caixa";
-    const dimL = cmToM(meta.comprimento || meta.L || 50);
-    const dimH = cmToM(meta.altura || meta.H || 50);
-    const dimW = cmToM(meta.largura || meta.W || 50);
-    const size = { x: dimL, y: dimH, z: dimW };
-
-    if (tipo === "cilindrico") {
-      const outer = dimL;
-      mesh = createCylinderMesh({ diameter: outer, height: dimH, color: meta.color || "#333" });
-      mesh.userData._size = size;
-    } else {
-      mesh = createBoxMesh([dimL, dimH, dimW], meta.color || "#ff7a18");
-      mesh.userData._size = size;
-    }
-
-    mesh.position.copy(pos);
-    if (rotation.isEuler) {
-      mesh.rotation.copy(rotation);
-    } else if (Array.isArray(rotation)) {
-      mesh.rotation.set(rotation[0], rotation[1], rotation[2]);
-    } else {
-      mesh.rotation.y = rotation; // fallback
-    }
-
-    mesh.userData.colocId = colocId;
-    mesh.userData.meta = meta;
-
-    scene.add(mesh);
-
-    // Calculate AABB size from rotated mesh
-    const box = new THREE.Box3().setFromObject(mesh);
-    const sizeVec = new THREE.Vector3();
-    box.getSize(sizeVec);
-    const aabbSize = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
-
-    const entry = { mesh, data: meta, aabb: makeAABBForSizeAt(aabbSize, mesh.position) };
-    placed.set(colocId, entry);
   }
 
   // keyboard shortcuts
@@ -408,30 +299,97 @@ export function initFullLoadEngine(container, initialBau = null) {
     if (e.key === " ") {
       e.preventDefault();
       // Cycle views: Iso -> Top -> Side -> Back -> Iso
-      // We can store current view index in a closure or just cycle based on position approx?
-      // Let's use a simple counter on the module scope if possible, or just random.
-      // Better: attach to camera userData
       let v = camera.userData.viewIndex || 0;
       v = (v + 1) % 4;
       camera.userData.viewIndex = v;
       const views = ["iso", "top", "side", "back"];
-      captureSnapshot(views[v]); // This function sets the camera! Handy reuse.
-      // Wait, captureSnapshot renders and returns image. We just want to SET camera.
-      // Let's extract setCameraView logic or just call it and ignore return.
-      // But captureSnapshot restores the camera at the end! So we can't use it to CHANGE view permanently.
-      // We need a separate setView function.
       setView(views[v]);
     }
 
-    // R: Rotate Ghost
+    // R: Rotate Ghost OR Selected
     if (e.key === "r" || e.key === "R") {
       if (ghost.visible && ghost.children[0]) {
         const mesh = ghost.children[0];
+        const meta = mesh.userData._meta || {};
+
+        // Check mandatory orientation
+        if (meta.posicao && meta.posicao !== "livre") {
+          console.warn("Rotação bloqueada pela posição obrigatória:", meta.posicao);
+          return; // Prevent rotation
+        }
+
         const currentIdx = mesh.userData._rotIndex || 0;
         const nextIdx = (currentIdx + 1) % ROTATION_STATES.length;
         const r = ROTATION_STATES[nextIdx];
         mesh.rotation.set(r[0], r[1], r[2]);
         mesh.userData._rotIndex = nextIdx;
+      } else if (selectedId) {
+        // Rotate Selected Item
+        const entry = placed.get(selectedId);
+        if (entry) {
+          const mesh = entry.mesh;
+          const meta = entry.data.meta || entry.data;
+          if (meta.posicao && meta.posicao !== "livre") {
+            console.warn("Rotação bloqueada pela posição obrigatória:", meta.posicao);
+            return;
+          }
+
+          mesh.rotation.y += Math.PI / 2;
+
+          // Update AABB and Size
+          const box = new THREE.Box3().setFromObject(mesh);
+          const sizeVec = new THREE.Vector3();
+          box.getSize(sizeVec);
+          mesh.userData._size = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
+
+          // Check collision
+          const newAABB = makeAABBForSizeAt(mesh.userData._size, mesh.position);
+          const others = Array.from(placed.values()).filter(p => p !== entry);
+          if (wouldCollide(newAABB, others) || !isInsideBau(newAABB)) {
+            // Revert
+            mesh.rotation.y -= Math.PI / 2;
+            const box2 = new THREE.Box3().setFromObject(mesh);
+            const sizeVec2 = new THREE.Vector3();
+            box2.getSize(sizeVec2);
+            mesh.userData._size = { x: sizeVec2.x, y: sizeVec2.y, z: sizeVec2.z };
+            console.warn("🚫 Rotação bloqueada: Colisão ou fora do baú.");
+          } else {
+            entry.aabb = newAABB;
+            entry.data.rotation = [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z];
+          }
+        }
+      }
+    }
+
+    // V: Stack Vertical (Duplicate selected on top)
+    if (e.key === "v" || e.key === "V") {
+      if (selectedId) {
+        const entry = placed.get(selectedId);
+        if (entry) {
+          const meta = entry.data.meta || entry.data;
+          setGhostMeta(meta);
+          // Position on top
+          const topY = entry.aabb.max.y + entry.mesh.userData._size.y / 2;
+          ghost.position.set(entry.mesh.position.x, topY, entry.mesh.position.z);
+          // Copy rotation
+          ghost.children[0].rotation.copy(entry.mesh.rotation);
+        }
+      }
+    }
+
+    // H: Stack Horizontal (Duplicate selected on side)
+    if (e.key === "h" || e.key === "H") {
+      if (selectedId) {
+        const entry = placed.get(selectedId);
+        if (entry) {
+          const meta = entry.data.meta || entry.data;
+          setGhostMeta(meta);
+          // Position on side (try X first)
+          const sideX = entry.aabb.max.x + entry.mesh.userData._size.x / 2;
+          ghost.position.set(sideX, entry.mesh.position.y, entry.mesh.position.z);
+          // Copy rotation
+          ghost.children[0].rotation.copy(entry.mesh.rotation);
+        }
       }
     }
 
@@ -448,13 +406,26 @@ export function initFullLoadEngine(container, initialBau = null) {
       const entry = placed.get(selectedId);
       if (entry) {
         const step = 0.01; // 1cm
+        const oldPos = entry.mesh.position.clone();
+
         if (e.key === "ArrowUp") entry.mesh.position.z -= step;
         if (e.key === "ArrowDown") entry.mesh.position.z += step;
         if (e.key === "ArrowLeft") entry.mesh.position.x -= step;
         if (e.key === "ArrowRight") entry.mesh.position.x += step;
 
         // Update AABB
-        entry.aabb = makeAABBForSizeAt(entry.mesh.userData._size, entry.mesh.position);
+        const newAABB = makeAABBForSizeAt(entry.mesh.userData._size, entry.mesh.position);
+
+        // Check overlap
+        const others = Array.from(placed.values()).filter(p => p !== entry);
+        const isOverlapping = checkOverlap(entry.mesh.position, entry.mesh.userData._size, others);
+
+        if (isOverlapping) {
+          // Revert
+          entry.mesh.position.copy(oldPos);
+        } else {
+          entry.aabb = newAABB;
+        }
       }
     }
 
@@ -619,9 +590,14 @@ export function initFullLoadEngine(container, initialBau = null) {
     // add group and set bauInnerBox coords
     bauGroup.position.set(0, 0, 0);
     // Label "FUNDO"
-    const label = createTextSprite("FUNDO");
+    const label = createTextSprite("Peito");
     label.position.set(L - 0.1, H / 2, W / 2); // Near the back wall
     bauGroup.add(label);
+
+    // Label "PEITO" (Front)
+    const labelPeito = createTextSprite("Fundo");
+    labelPeito.position.set(0.1, H / 2, W / 2);
+    bauGroup.add(labelPeito);
 
     scene.add(bauGroup);
 
@@ -673,7 +649,7 @@ export function initFullLoadEngine(container, initialBau = null) {
           const sx = data.scale?.[0] ?? cmToM((data.meta?.comprimento || data.comprimento) || 50);
           const sy = data.scale?.[1] ?? cmToM((data.meta?.altura || data.altura) || 50);
           const sz = data.scale?.[2] ?? cmToM((data.meta?.largura || data.largura) || 50);
-          mesh = createBoxMesh([sx, sy, sz], data.meta?.color || "#ff7a18");
+          mesh = createBoxMesh([sx, sy, sz], data.meta?.cor || data.meta?.color || "#ff7a18");
           mesh.userData._size = { x: sx, y: sy, z: sz };
         }
 
@@ -706,7 +682,6 @@ export function initFullLoadEngine(container, initialBau = null) {
     const tipo = merc.tipo || "caixa";
     if (tipo === "cilindrico") {
       const outer = cmToM(merc.largura || merc.W || 230);
-      // const tube = cmToM(merc.comprimento || merc.L || 30);
       const height = cmToM(merc.altura || merc.H || 30);
       const mesh = createCylinderMesh({ diameter: outer, height, color: merc.color || "#00a" });
       mesh.material = mesh.material.clone();
@@ -720,13 +695,13 @@ export function initFullLoadEngine(container, initialBau = null) {
       const sx = cmToM(merc.comprimento || merc.L || 50);
       const sy = cmToM(merc.altura || merc.H || 50);
       const sz = cmToM(merc.largura || merc.W || 50);
-      const mesh = createBoxMesh([sx, sy, sz], merc.color || "#00a");
+      const mesh = createBoxMesh([sx, sy, sz], merc.cor || merc.color || "#00a");
       mesh.material = mesh.material.clone();
       mesh.material.transparent = true;
       mesh.material.opacity = 0.25;
       mesh.userData._size = { x: sx, y: sy, z: sz };
       mesh.userData._meta = merc;
-      mesh.userData._rotIndex = 0; // Init rotation index
+      mesh.userData._rotIndex = 0;
       ghost.add(mesh);
       ghost.visible = true;
     }
@@ -745,18 +720,15 @@ export function initFullLoadEngine(container, initialBau = null) {
     const L = bauInnerBox.max.x,
       W = bauInnerBox.max.z,
       H = bauInnerBox.max.y;
-    // Isometric-ish view
     camera.position.set(-L * 0.5, H * 3, W * 2.5);
     controls.target.set(L / 2, H / 2, W / 2);
     controls.update();
   }
 
   function destroy() {
-    // stop loop
     running = false;
     try { cancelAnimationFrame(rafId); } catch { }
 
-    // remove global listeners
     try { window.removeEventListener("resize", onResize); } catch { }
     try { renderer.domElement.removeEventListener("pointermove", onPointerMove); } catch { }
     try { renderer.domElement.removeEventListener("pointerdown", onPointerDown); } catch { }
@@ -768,18 +740,15 @@ export function initFullLoadEngine(container, initialBau = null) {
     try { window.removeEventListener("fullLoad_removedExternamente", onExternalRemove); } catch { }
     try { window.removeEventListener("fullLoad_remove", () => { }); } catch { }
 
-    // remove meshes
     try {
       for (const [k, v] of Array.from(placed.entries())) {
         try { scene.remove(v.mesh); } catch { }
         placed.delete(k);
       }
-      // remove bau and ghost
       try { if (bauGroup) scene.remove(bauGroup); } catch { }
       try { scene.remove(ghost); } catch { }
     } catch (err) { }
 
-    // dispose renderer and attempt to remove canvas only if we appended it
     try {
       renderer.dispose();
     } catch (err) { }
@@ -790,18 +759,71 @@ export function initFullLoadEngine(container, initialBau = null) {
       } catch (err) { }
     }
 
-    // clear module pointer
     if (_engineAPI && _engineAPI.destroy === destroy) {
       _engineAPI = null;
     }
   }
 
-  // initialize with provided bau if given
   if (initialBau) setBau(initialBau);
 
   // ===============================
-  // AUTO‑ADD MERCADORIA (auto placement)
+  // FBL (Front-Bottom-Left) PACKING ALGORITHM
   // ===============================
+
+  // Helper: Check if two AABBs overlap
+  function boxesOverlap(a, b) {
+    const epsilon = 0.001;
+    return (
+      a.min.x < b.max.x - epsilon && a.max.x > b.min.x + epsilon &&
+      a.min.y < b.max.y - epsilon && a.max.y > b.min.y + epsilon &&
+      a.min.z < b.max.z - epsilon && a.max.z > b.min.z + epsilon
+    );
+  }
+
+  // Helper: Check if a candidate box collides with any existing item
+  function wouldCollide(candidateAABB, existingItems) {
+    // Check truck bounds
+    if (candidateAABB.min.x < 0 || candidateAABB.min.y < 0 || candidateAABB.min.z < 0 ||
+      candidateAABB.max.x > bauInnerBox.max.x ||
+      candidateAABB.max.y > bauInnerBox.max.y ||
+      candidateAABB.max.z > bauInnerBox.max.z) {
+      return true;
+    }
+
+    for (const item of existingItems) {
+      if (boxesOverlap(candidateAABB, item.aabb)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Helper: Calculate support from below
+  function supportTopAt(candidateAABB, existingItems) {
+    let topY = 0;
+    const cx = (candidateAABB.min.x + candidateAABB.max.x) / 2;
+    const cz = (candidateAABB.min.z + candidateAABB.max.z) / 2;
+    const dx = candidateAABB.max.x - candidateAABB.min.x;
+    const dz = candidateAABB.max.z - candidateAABB.min.z;
+
+    for (const item of existingItems) {
+      // Check if item is below candidate
+      if (item.aabb.max.y <= candidateAABB.min.y + 0.001) {
+        // Check horizontal overlap
+        const ixMin = Math.max(candidateAABB.min.x, item.aabb.min.x);
+        const ixMax = Math.min(candidateAABB.max.x, item.aabb.max.x);
+        const izMin = Math.max(candidateAABB.min.z, item.aabb.min.z);
+        const izMax = Math.min(candidateAABB.max.z, item.aabb.max.z);
+
+        if (ixMax > ixMin && izMax > izMin) {
+          // Overlap exists
+          topY = Math.max(topY, item.aabb.max.y);
+        }
+      }
+    }
+    return topY;
+  }
+
   function addMercadoriaAuto(mercadoria, quantidade = 1) {
     if (!bauInnerBox) {
       console.warn("addMercadoriaAuto: bau ainda não foi definido.");
@@ -809,118 +831,156 @@ export function initFullLoadEngine(container, initialBau = null) {
     }
 
     const placedResults = [];
-    const existingItems = Array.from(placed.values());
+    let existingItems = Array.from(placed.values());
 
     for (let i = 0; i < quantidade; i++) {
       const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `auto_${Date.now()}_${i}`;
 
-      // Base dimensions
       const dimL = cmToM(mercadoria.comprimento || mercadoria.L || 50);
       const dimH = cmToM(mercadoria.altura || mercadoria.H || 50);
       const dimW = cmToM(mercadoria.largura || mercadoria.W || 50);
 
-      let bestPos = null;
-      let bestScore = Infinity;
-      let bestRot = 0; // 0 or Math.PI/2
-      let bestDims = { x: dimL, y: dimH, z: dimW };
-
-      // Try two orientations: 0 deg and 90 deg (swap L and W)
-      const orientations = [
-        { r: 0, dx: dimL, dz: dimW },
-        { r: Math.PI / 2, dx: dimW, dz: dimL }
+      const allRotations = [
+        { dims: { x: dimL, y: dimH, z: dimW }, rot: [0, 0, 0], label: "em_pe" },
+        { dims: { x: dimW, y: dimH, z: dimL }, rot: [0, Math.PI / 2, 0], label: "em_pe" },
+        { dims: { x: dimL, y: dimW, z: dimH }, rot: [Math.PI / 2, 0, 0], label: "deitado" },
+        { dims: { x: dimH, y: dimW, z: dimL }, rot: [Math.PI / 2, Math.PI / 2, 0], label: "deitado" },
+        { dims: { x: dimH, y: dimL, z: dimW }, rot: [0, 0, Math.PI / 2], label: "de_lado" },
+        { dims: { x: dimW, y: dimL, z: dimH }, rot: [0, Math.PI / 2, Math.PI / 2], label: "de_lado" }
       ];
 
-      for (const orient of orientations) {
-        const sx = orient.dx;
-        const sy = dimH;
-        const sz = orient.dz;
+      let allowedRotations = allRotations;
+      if (mercadoria.posicao && mercadoria.posicao !== "livre") {
+        allowedRotations = allRotations.filter(r => r.label === mercadoria.posicao);
+        if (allowedRotations.length === 0) allowedRotations = allRotations;
+      }
 
-        // Candidate Generation
-        const candidates = [];
-        const spacing = 0.001; // Safety margin
-        candidates.push({ x: sx / 2 + spacing, z: sz / 2 + spacing }); // Origin
+      // Generate Candidate Points
+      // Candidates are: (0,0,0) AND (item.max.x, item.max.y, item.max.z) for all existing items
+      // We filter coordinates to be within truck bounds.
+      let xCands = new Set([0]);
+      let yCands = new Set([0]);
+      let zCands = new Set([0]);
 
-        for (const item of existingItems) {
-          const b = item.aabb;
+      for (const item of existingItems) {
+        if (item.aabb.max.x < bauInnerBox.max.x) xCands.add(item.aabb.max.x);
+        if (item.aabb.max.y < bauInnerBox.max.y) yCands.add(item.aabb.max.y);
+        if (item.aabb.max.z < bauInnerBox.max.z) zCands.add(item.aabb.max.z);
+      }
 
-          // 1. Right of item (X+)
-          const rightX = b.max.x + sx / 2 + spacing;
-          candidates.push({ x: rightX, z: b.min.z + sz / 2 }); // Align bottom Z
-          candidates.push({ x: rightX, z: b.max.z - sz / 2 }); // Align top Z
-          candidates.push({ x: rightX, z: (b.min.z + b.max.z) / 2 }); // Center Z
+      const sortedX = Array.from(xCands).sort((a, b) => a - b); // Front to Back (Min X first)
+      const sortedY = Array.from(yCands).sort((a, b) => a - b); // Bottom to Top
+      const sortedZ = Array.from(zCands).sort((a, b) => a - b); // Left to Right
 
-          // 2. Front of item (Z+)
-          const frontZ = b.max.z + sz / 2 + spacing;
-          candidates.push({ x: b.min.x + sx / 2, z: frontZ }); // Align left X
-          candidates.push({ x: b.max.x - sx / 2, z: frontZ }); // Align right X
-          candidates.push({ x: (b.min.x + b.max.x) / 2, z: frontZ }); // Center X
+      let bestFit = null;
 
-          // 3. Top of item (Y+) - handled by computeStackY, but we need base coords
-          candidates.push({ x: (b.min.x + b.max.x) / 2, z: (b.min.z + b.max.z) / 2 });
-        }
+      // Iterate candidates: X (Front) -> Y (Bottom) -> Z (Left)
+      searchLoop:
+      for (const x of sortedX) {
+        for (const y of sortedY) {
+          for (const z of sortedZ) {
+            for (const config of allowedRotations) {
+              const dims = config.dims;
 
-        for (const cand of candidates) {
-          // 1. Tight Pack
-          const snap = tightPack(cand.x, cand.z, sx, sz, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
-          let x = snap.x;
-          let z = snap.z;
+              // Candidate position is the anchor point (min x, min y, min z)
+              const posX = x;
+              const posY = y;
+              const posZ = z;
 
-          // 2. Compute Y
-          const y = computeStackY(existingItems, bauInnerBox, x, z, sx, sy, sz);
+              const candidateAABB = {
+                min: { x: posX, y: posY, z: posZ },
+                max: { x: posX + dims.x, y: posY + dims.y, z: posZ + dims.z }
+              };
 
-          if (y !== null) {
-            // Score: Minimize X (back), then Y (bottom), then Z (left)
-            const score = (x * 10000) + (y * 100) + z;
+              if (!wouldCollide(candidateAABB, existingItems)) {
+                // Check support (gravity)
+                const supportY = supportTopAt(candidateAABB, existingItems);
 
-            if (score < bestScore) {
-              bestScore = score;
-              bestPos = { x, y, z };
-              bestRot = orient.r;
-              bestDims = { x: sx, y: sy, z: sz };
+                // For tight packing, we want the item to rest on something.
+                // If y > supportY, it's floating.
+                // If y < supportY, it's overlapping (but wouldCollide handles that).
+                // So we basically want y == supportY.
+                // Since we iterate Y candidates which are derived from item max Ys,
+                // it's possible that 'y' is exactly 'supportY'.
+                // But if there's a gap, 'y' might be higher.
+                // We should only accept if y is very close to supportY.
+
+                if (Math.abs(posY - supportY) > 0.001) {
+                  continue;
+                }
+
+                bestFit = {
+                  position: { x: posX, y: posY, z: posZ },
+                  dims: dims,
+                  rotation: config
+                };
+                break searchLoop;
+              }
             }
           }
         }
       }
 
-      if (bestPos) {
-        // Place it
+      if (bestFit) {
+        // Place the item
         let mesh;
         try {
           if ((mercadoria.tipo || mercadoria.meta?.tipo) === "cilindrico") {
-            const outer = bestDims.x; // Diameter
-            mesh = createCylinderMesh({ diameter: outer, height: bestDims.y, color: mercadoria.color || "#333" });
-            mesh.userData._size = bestDims;
+            const outer = bestFit.dims.x;
+            mesh = createCylinderMesh({ diameter: outer, height: bestFit.dims.y, color: mercadoria.color || "#333" });
+            mesh.userData._size = bestFit.dims;
           } else {
-            mesh = createBoxMesh([bestDims.x, bestDims.y, bestDims.z], mercadoria.color || "#ff7a18");
-            mesh.userData._size = bestDims;
+            mesh = createBoxMesh(
+              [bestFit.dims.x, bestFit.dims.y, bestFit.dims.z],
+              mercadoria.cor || mercadoria.color || "#ff7a18"
+            );
+            mesh.userData._size = bestFit.dims;
           }
 
-          mesh.position.set(bestPos.x, bestPos.y, bestPos.z);
-          mesh.rotation.y = bestRot; // Apply rotation
+          // Position at center of box
+          const centerPos = {
+            x: bestFit.position.x + bestFit.dims.x / 2,
+            y: bestFit.position.y + bestFit.dims.y / 2,
+            z: bestFit.position.z + bestFit.dims.z / 2
+          };
+
+          mesh.position.set(centerPos.x, centerPos.y, centerPos.z);
+          mesh.rotation.set(bestFit.rotation.rot[0], bestFit.rotation.rot[1], bestFit.rotation.rot[2]);
 
           mesh.userData.colocId = colocId;
           mesh.userData.meta = mercadoria;
 
           scene.add(mesh);
 
-          const entry = { mesh, data: mercadoria, aabb: makeAABBForSizeAt(mesh.userData._size, mesh.position) };
+          const box = new THREE.Box3().setFromObject(mesh);
+          const aabb = { min: box.min, max: box.max };
+
+          const entry = { mesh, data: mercadoria, aabb };
           placed.set(colocId, entry);
           existingItems.push(entry);
 
           placedResults.push({
             id: colocId,
-            position: [bestPos.x, bestPos.y, bestPos.z],
-            rotation: [0, bestRot, 0],
-            scale: [bestDims.x, bestDims.y, bestDims.z],
+            position: [centerPos.x, centerPos.y, centerPos.z],
+            rotation: bestFit.rotation.rot,
+            scale: [bestFit.dims.x, bestFit.dims.y, bestFit.dims.z],
             tipo: mercadoria.tipo || "caixa",
             meta: mercadoria
           });
+
+          console.log(`✅ Item colocado em (${centerPos.x.toFixed(2)}, ${centerPos.y.toFixed(2)}, ${centerPos.z.toFixed(2)})`);
 
         } catch (err) {
           console.error("Erro ao criar mesh auto:", err);
         }
       } else {
-        console.warn("❌ Não foi possível colocar mercadoria automaticamente — sem espaço.");
+        console.warn("❌ Não foi possível colocar mercadoria — sem espaço adequado.");
+        window.dispatchEvent(new CustomEvent("fullLoad_error", {
+          detail: {
+            message: `Não foi possível alocar o item ${mercadoria.nome || 'Mercadoria'} (${dimL}x${dimH}x${dimW}m). Verifique o espaço disponível.`,
+            item: mercadoria
+          }
+        }));
       }
     }
 
@@ -931,17 +991,14 @@ export function initFullLoadEngine(container, initialBau = null) {
     setGhostMeta(merc);
   }
 
-  // small helper to fully clear scene placements (keeps bau)
   function clearScene() {
     for (const [k, v] of Array.from(placed.entries())) {
       try { scene.remove(v.mesh); } catch { }
       placed.delete(k);
     }
-    // hide ghost
     ghost.visible = false;
   }
 
-  // Helper to capture snapshot from specific view
   function captureSnapshot(view = "iso") {
     if (!bauInnerBox) return null;
 
@@ -949,12 +1006,10 @@ export function initFullLoadEngine(container, initialBau = null) {
     const W = bauInnerBox.max.z;
     const H = bauInnerBox.max.y;
 
-    // Save current camera state
     const oldPos = camera.position.clone();
     const oldQuat = camera.quaternion.clone();
     const oldTarget = controls.target.clone();
 
-    // Set up new view
     controls.target.set(L / 2, H / 2, W / 2);
 
     if (view === "iso") {
@@ -962,31 +1017,67 @@ export function initFullLoadEngine(container, initialBau = null) {
     } else if (view === "top") {
       camera.position.set(L / 2, H * 4, W / 2);
     } else if (view === "side") {
-      // Side view (from Z)
       camera.position.set(L / 2, H / 2, W * 3);
     } else if (view === "back") {
-      // Back view (looking from X=0 towards L)
       camera.position.set(-L, H / 2, W / 2);
     }
 
     camera.lookAt(controls.target);
     controls.update();
 
-    // Render
     renderer.render(scene, camera);
     const dataURL = renderer.domElement.toDataURL("image/png");
 
-    // Restore
     camera.position.copy(oldPos);
     camera.quaternion.copy(oldQuat);
     controls.target.copy(oldTarget);
     controls.update();
-    renderer.render(scene, camera); // Re-render original view
+    renderer.render(scene, camera);
 
     return dataURL;
   }
 
-  // expose API for this engine instance
+  function optimizeLoad() {
+    if (!bauInnerBox) {
+      console.warn("optimizeLoad: Bau not defined");
+      return;
+    }
+
+    const items = Array.from(placed.values()).map(entry => entry.data.meta || entry.data);
+
+    if (items.length === 0) {
+      console.warn("optimizeLoad: No items to optimize");
+      return;
+    }
+
+    console.log(`🔄 Otimizando carga com ${items.length} itens...`);
+
+    clearScene();
+
+    items.sort((a, b) => {
+      const getDims = (item) => {
+        const l = Number(item.comprimento || item.L || 50);
+        const h = Number(item.altura || item.H || 50);
+        const w = Number(item.largura || item.W || 50);
+        return { l, h, w, vol: l * h * w, max: Math.max(l, h, w) };
+      };
+      const dA = getDims(a);
+      const dB = getDims(b);
+
+      if (Math.abs(dB.vol - dA.vol) > 1) return dB.vol - dA.vol;
+      if (Math.abs(dB.h - dA.h) > 0.1) return dB.h - dA.h;
+      return dB.max - dA.max;
+    });
+
+    let successCount = 0;
+    for (const item of items) {
+      const result = addMercadoriaAuto(item, 1);
+      if (result && result.length > 0) successCount++;
+    }
+
+    console.log(`✅ Otimização concluída. ${successCount}/${items.length} itens realocados.`);
+  }
+
   const api = {
     scene,
     camera,
@@ -1001,7 +1092,8 @@ export function initFullLoadEngine(container, initialBau = null) {
     clearScene,
     captureSnapshot,
     getPlacedItems,
-    getBauState
+    getBauState,
+    optimizeLoad
   };
 
   function getPlacedItems() {
@@ -1024,7 +1116,6 @@ export function initFullLoadEngine(container, initialBau = null) {
     };
   }
 
-
   function createTextSprite(message) {
     const canvas = document.createElement("canvas");
     const ctx = canvas.getContext("2d");
@@ -1034,11 +1125,6 @@ export function initFullLoadEngine(container, initialBau = null) {
     canvas.width = textWidth + 20;
     canvas.height = fontSize + 20;
 
-    // Background (optional)
-    // ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
-    // ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-    // Text
     ctx.fillStyle = "#000000";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
@@ -1048,14 +1134,12 @@ export function initFullLoadEngine(container, initialBau = null) {
     const material = new THREE.SpriteMaterial({ map: texture });
     const sprite = new THREE.Sprite(material);
 
-    // Scale sprite to be reasonable in 3D world (e.g. 1 meter wide approx)
     const scale = 1.0;
     sprite.scale.set(scale * (canvas.width / canvas.height), scale, 1);
 
     return sprite;
   }
 
-  // store module-level pointer for wrapper exports
   _engineAPI = api;
 
   return api;
@@ -1135,4 +1219,12 @@ export function setItems(items) {
     return;
   }
   _engineAPI.setItems(items);
+}
+
+export function optimizeLoad() {
+  if (!_engineAPI) {
+    console.warn("optimizeLoad: engine not initialized");
+    return;
+  }
+  _engineAPI.optimizeLoad();
 }

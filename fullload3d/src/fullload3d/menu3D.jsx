@@ -47,17 +47,31 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
     const nomeMatch =
       m.nome.toLowerCase().includes(pesquisa.toLowerCase()) ||
       m.codigo?.toLowerCase().includes(pesquisa.toLowerCase());
-    const tipoMatch = filtroTipo === "todos" || m.tipo === filtroTipo;
-    return nomeMatch && tipoMatch;
+
+    if (filtroTipo === "todos") return nomeMatch;
+
+    const tipoItem = (m.tipo || "").toLowerCase();
+    const tipoFiltro = filtroTipo.toLowerCase();
+
+    return nomeMatch && tipoItem === tipoFiltro;
   });
+
+  // Helper para obter dimensões do baú (suporta chaves em PT e EN)
+  const getDimensions = (bau) => {
+    if (!bau) return { L: 0, H: 0, W: 0 };
+    const t = bau.tamanhoBau || bau;
+    return {
+      L: Number(t.L || t.comprimento || 0),
+      H: Number(t.H || t.altura || 0),
+      W: Number(t.W || t.largura || 0)
+    };
+  };
 
   // Carregar baú
   const carregarNo3D = () => {
     if (!bauSelecionado) return;
 
-    const L = bauSelecionado.tamanhoBau?.W;
-    const H = bauSelecionado.tamanhoBau?.H;
-    const W = bauSelecionado.tamanhoBau?.L;
+    const { L, H, W } = getDimensions(bauSelecionado);
 
     window.dispatchEvent(
       new CustomEvent("3d_setBau", {

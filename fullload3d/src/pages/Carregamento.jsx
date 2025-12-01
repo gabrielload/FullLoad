@@ -4,7 +4,9 @@ import { useNavigate } from "react-router-dom";
 import ClientLayout from "../layouts/ClientLayout";
 import { db } from "../services/firebaseConfig";
 import { collection, addDoc, getDocs, query, where, orderBy } from "firebase/firestore";
-import { Package, Plus, Calendar, Clock, CheckCircle, Loader2 } from "lucide-react";
+import { Package, Plus, Calendar, Clock, CheckCircle, Loader2, FileDown } from "lucide-react";
+import { jsPDF } from "jspdf";
+import "jspdf-autotable";
 
 export default function Carregamento() {
   const navigate = useNavigate();
@@ -105,6 +107,58 @@ export default function Carregamento() {
         {status}
       </span>
     );
+  };
+
+  const handleDownloadPDF = (e, plan) => {
+    e.stopPropagation(); // Prevent row click navigation
+
+    // 1. If plan has a saved PDF URL, open it
+    if (plan.pdfUrl) {
+      window.open(plan.pdfUrl, "_blank");
+      return;
+    }
+
+    // 2. Fallback: Generate text-based PDF
+    const doc = new jsPDF();
+
+    // Header
+    doc.setFontSize(18);
+    doc.text("FullLoad 3D — Manifesto de Carga", 14, 20);
+
+    doc.setFontSize(12);
+    doc.text(`Plano: ${plan.nome}`, 14, 30);
+    doc.text(`Documento: ${plan.documento || "-"}`, 14, 36);
+    doc.text(`Processo: ${plan.processo || "-"}`, 14, 42);
+    doc.text(`Data: ${new Date(plan.dataCriacao).toLocaleString()}`, 14, 48);
+
+    // Summary
+    const totalItems = plan.items?.length || 0;
+    doc.text(`Total de Itens: ${totalItems}`, 14, 58);
+
+    // Table
+    const tableColumn = ["Item", "Posição (x, y, z)", "Dimensões (cm)"];
+    const tableRows = [];
+
+    if (plan.items) {
+      plan.items.forEach(item => {
+        const itemData = [
+          item.meta?.nome || "Item",
+          `${item.position[0].toFixed(0)}, ${item.position[1].toFixed(0)}, ${item.position[2].toFixed(0)}`,
+          `${item.scale[0].toFixed(0)}x${item.scale[1].toFixed(0)}x${item.scale[2].toFixed(0)}`
+        ];
+        tableRows.push(itemData);
+      });
+    }
+
+    doc.autoTable({
+      startY: 65,
+      head: [tableColumn],
+      body: tableRows,
+      theme: 'grid',
+      headStyles: { fillColor: [234, 88, 12] }, // Orange-600
+    });
+
+    doc.save(`manifesto_${plan.documento || "plano"}.pdf`);
   };
 
   return (
@@ -280,9 +334,12 @@ export default function Carregamento() {
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome do Plano</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Documento</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Tipo</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Processo</th>
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Data</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Baú (m)</th>
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Itens</th>
+                    <th className="text-right py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -300,6 +357,9 @@ export default function Carregamento() {
                           <span className="font-medium text-slate-900 group-hover:text-orange-500 transition-colors">{p.nome}</span>
                         </div>
                       </td>
+                      <td className="py-4 px-8 text-slate-700">{p.documento || "-"}</td>
+                      <td className="py-4 px-8 text-slate-700">{p.tipoCarga || "-"}</td>
+                      <td className="py-4 px-8 text-slate-700">{p.processo || "-"}</td>
                       <td className="py-4 px-8">
                         <div className="flex items-center gap-2 text-slate-600">
                           <Calendar className="w-4 h-4 text-slate-400" />
@@ -309,12 +369,16 @@ export default function Carregamento() {
                         </div>
                       </td>
                       <td className="py-4 px-8">
-                        <span className="text-sm text-slate-600">
-                          {p.bau ? `${p.bau.L} x ${p.bau.W} x ${p.bau.H}` : "-"}
-                        </span>
-                      </td>
-                      <td className="py-4 px-8">
                         <span className="font-semibold text-slate-700">{p.items?.length || 0}</span>
+                      </td>
+                      <td className="py-4 px-8 text-right">
+                        <button
+                          onClick={(e) => handleDownloadPDF(e, p)}
+                          className="p-2 text-slate-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors"
+                          title="Baixar PDF do Manifesto"
+                        >
+                          <FileDown size={20} />
+                        </button>
                       </td>
                     </tr>
                   ))}
