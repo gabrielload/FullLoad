@@ -3,6 +3,7 @@ import ClientLayout from "../layouts/ClientLayout";
 import { Bell, Lock, Globe, FileDown } from "lucide-react";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../services/firebaseConfig";
+import * as XLSX from "xlsx";
 
 export default function Configuracoes() {
     const [notifications, setNotifications] = useState(true);
@@ -26,28 +27,46 @@ export default function Configuracoes() {
     };
 
     const handleDownloadTemplate = (type) => {
-        let headers = "";
-        let sample = "";
+        let data = [];
         let filename = "";
 
         if (type === "mercadorias") {
-            headers = "nome,codigo,quantidade,tipo,peso,comprimento,largura,altura,precoUnitario,status,posicao,cor";
-            sample = "Caixa Exemplo,CX001,10,caixa,5.5,30,20,15,10.00,ativo,livre,#ff7a18";
-            filename = "modelo_mercadorias.csv";
+            data = [
+                {
+                    nome: "Caixa Exemplo",
+                    codigo: "CX001",
+                    quantidade: 10,
+                    tipo: "caixa",
+                    peso: 5.5,
+                    comprimento: 30,
+                    largura: 20,
+                    altura: 15,
+                    precoUnitario: 10.00,
+                    status: "ativo",
+                    posicao: "livre",
+                    cor: "#ff7a18"
+                }
+            ];
+            filename = "modelo_mercadorias.xlsx";
         } else if (type === "caminhoes") {
-            headers = "nome,modelo,placa,comprimento,largura,altura,tara";
-            sample = "Caminhão Exemplo,Scania R450,ABC-1234,1360,245,280,7000";
-            filename = "modelo_caminhoes.csv";
+            data = [
+                {
+                    nome: "Caminhão Exemplo",
+                    modelo: "Scania R450",
+                    placa: "ABC-1234",
+                    comprimento: 1360,
+                    largura: 245,
+                    altura: 280,
+                    tara: 7000
+                }
+            ];
+            filename = "modelo_caminhoes.xlsx";
         }
 
-        const csvContent = `data:text/csv;charset=utf-8,${headers}\n${sample}`;
-        const encodedUri = encodeURI(csvContent);
-        const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", filename);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Modelo");
+        XLSX.writeFile(wb, filename);
     };
 
     return (

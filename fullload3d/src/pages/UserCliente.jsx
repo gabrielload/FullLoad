@@ -7,12 +7,19 @@ import {
   getDocs,
   setDoc,
   doc,
-  deleteDoc
+  deleteDoc,
+  query,
+  where
 } from "firebase/firestore";
 import {
   createUserWithEmailAndPassword,
   sendPasswordResetEmail,
+  getAuth as getAuthSecondary,
+  createUserWithEmailAndPassword as createUserSecondary,
+  updateProfile
 } from "firebase/auth";
+import { initializeApp, deleteApp } from "firebase/app";
+import { firebaseConfig } from "../services/firebaseConfig";
 import Papa from "papaparse";
 
 import {
@@ -32,6 +39,7 @@ import {
 
 export default function Usuarios() {
   const empresaId = localStorage.getItem("empresaId");
+  const userRole = localStorage.getItem("role");
   const maxUsuarios = 5;
 
   const [usuarios, setUsuarios] = useState([]);
@@ -41,6 +49,7 @@ export default function Usuarios() {
     email: "",
     senha: "",
     cargo: "Operador",
+    setor: "",
   });
   const [loading, setLoading] = useState(false);
   const [showSenha, setShowSenha] = useState(false);
@@ -60,8 +69,9 @@ export default function Usuarios() {
   const carregarUsuarios = async () => {
     try {
       setLoading(true);
-      const usuariosRef = collection(db, "empresas", empresaId, "usuarios");
-      const snap = await getDocs(usuariosRef);
+      // Query root 'usuarios' collection filtered by empresaId
+      const q = query(collection(db, "usuarios"), where("empresaId", "==", empresaId));
+      const snap = await getDocs(q);
       setUsuarios(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
     } catch (err) {
       console.error("Erro ao carregar usuários:", err);
@@ -89,7 +99,8 @@ export default function Usuarios() {
 
     try {
       setLoading(true);
-      await deleteDoc(doc(db, "empresas", empresaId, "usuarios", uid));
+      // Delete from root 'usuarios' collection
+      await deleteDoc(doc(db, "usuarios", uid));
       setSuccess("Usuário excluído!");
       setTimeout(() => setSuccess(""), 3000);
       carregarUsuarios();
@@ -110,33 +121,54 @@ export default function Usuarios() {
 
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
+      // Create secondary app to avoid logging out the current user
+      const secondaryApp = initializeApp(firebaseConfig, "SecondaryClient");
+      const secondaryAuth = getAuthSecondary(secondaryApp);
+
+      const userCredential = await createUserSecondary(
+        secondaryAuth,
         form.email,
         form.senha
       );
       const user = userCredential.user;
+      await updateProfile(user, { displayName: form.nome });
+
+      // Cleanup secondary app
+      await deleteApp(secondaryApp);
 
       await setDoc(
-        doc(db, "empresas", empresaId, "usuarios", user.uid),
+        doc(db, "usuarios", user.uid),
         {
           uid: user.uid,
           nome: form.nome,
           email: form.email,
+          email: form.email,
           cargo: form.cargo,
+          setor: form.setor,
+          empresaId: empresaId, // Important: Link to company
+          role: "user", // Default role for operators
+          ativo: true,
           criadoEm: new Date(),
         }
       );
 
       setOpenModal(false);
-      setForm({ nome: "", email: "", senha: "", cargo: "Operador" });
+      setOpenModal(false);
+      setForm({ nome: "", email: "", senha: "", cargo: "Operador", setor: "" });
+      setShowSenha(false);
       setShowSenha(false);
       setSuccess("Usuário criado com sucesso!");
       setTimeout(() => setSuccess(""), 3000);
       carregarUsuarios();
     } catch (err) {
       console.error(err);
-      alert("Erro ao criar usuário.");
+      if (err.code === "auth/email-already-in-use") {
+        alert("Este email já está em uso por outro usuário.");
+      } else if (err.code === "auth/weak-password") {
+        alert("A senha deve ter pelo menos 6 caracteres.");
+      } else {
+        alert(`Erro ao criar usuário: ${err.message}`);
+      }
     } finally {
       setLoading(false);
     }
@@ -183,12 +215,15 @@ export default function Usuarios() {
             const user = userCredential.user;
 
             await setDoc(
-              doc(db, "empresas", empresaId, "usuarios", user.uid),
+              doc(db, "usuarios", user.uid),
               {
                 uid: user.uid,
                 nome,
                 email,
                 cargo,
+                empresaId: empresaId,
+                role: "user",
+                ativo: true,
                 criadoEm: new Date(),
               }
             );
@@ -237,21 +272,25 @@ export default function Usuarios() {
           </div>
 
           <div className="flex gap-3">
-            <button
-              onClick={() => setOpenModal(true)}
-              disabled={usuarios.length >= maxUsuarios}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl shadow-lg shadow-orange-500/30 text-base font-bold text-white bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Plus size={20} /> Novo Usuário
-            </button>
+            {userRole !== "Operador" && (
+              <>
+                <button
+                  onClick={() => setOpenModal(true)}
+                  disabled={usuarios.length >= maxUsuarios}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl shadow-lg shadow-orange-500/30 text-base font-bold text-white bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus size={20} /> Novo Usuário
+                </button>
 
-            <button
-              onClick={() => setOpenImportModal(true)}
-              disabled={usuarios.length >= maxUsuarios}
-              className="flex items-center gap-2 px-6 py-3 rounded-xl shadow-lg shadow-slate-500/30 text-base font-bold text-white bg-gradient-to-r from-slate-600 to-slate-500 hover:from-slate-700 hover:to-slate-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <FileText size={20} /> Importar CSV
-            </button>
+                <button
+                  onClick={() => setOpenImportModal(true)}
+                  disabled={usuarios.length >= maxUsuarios}
+                  className="flex items-center gap-2 px-6 py-3 rounded-xl shadow-lg shadow-slate-500/30 text-base font-bold text-white bg-gradient-to-r from-slate-600 to-slate-500 hover:from-slate-700 hover:to-slate-600 transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <FileText size={20} /> Importar CSV
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -290,6 +329,7 @@ export default function Usuarios() {
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome</th>
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Email</th>
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Cargo</th>
+                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Setor</th>
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Criado em</th>
                     <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Ações</th>
                   </tr>
@@ -316,6 +356,9 @@ export default function Usuarios() {
                         <CargoBadge cargo={u.cargo} />
                       </td>
                       <td className="py-4 px-8 text-slate-600 text-sm">
+                        {u.setor || "-"}
+                      </td>
+                      <td className="py-4 px-8 text-slate-600 text-sm">
                         {u.criadoEm?.toDate
                           ? u.criadoEm.toDate().toLocaleDateString()
                           : ""}
@@ -330,12 +373,14 @@ export default function Usuarios() {
                             Resetar senha
                           </button>
 
-                          <button
-                            onClick={() => excluirUsuario(u.id)}
-                            className="p-2 rounded-lg bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white shadow-md transition-all"
-                          >
-                            <Trash2 size={16} />
-                          </button>
+                          {userRole === 'Administrador' && (
+                            <button
+                              onClick={() => excluirUsuario(u.id)}
+                              className="p-2 rounded-lg bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white shadow-md transition-all"
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -359,6 +404,16 @@ export default function Usuarios() {
               <h2 className="text-2xl font-bold mb-6 text-slate-900">
                 Novo Usuário
               </h2>
+
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-slate-700 mb-2">Setor</label>
+                <input
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-orange-500 transition-colors"
+                  placeholder="Ex: Logística"
+                  value={form.setor}
+                  onChange={(e) => handleChange("setor", e.target.value)}
+                />
+              </div>
 
               <div className="space-y-4">
                 <div>

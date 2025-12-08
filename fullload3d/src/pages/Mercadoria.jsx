@@ -47,7 +47,7 @@ export default function Mercadoria() {
   const [form, setForm] = useState({
     nome: "",
     codigo: "",
-    quantidade: 1,
+    // quantidade removed
     tipo: "caixa",
     peso: 0,
     comprimento: 0,
@@ -58,6 +58,9 @@ export default function Mercadoria() {
     status: "ativo",
     posicao: "livre",
     cor: "#ff7a18",
+    fragilidade: "baixa", // baixa, media, alta
+    empilhavel: true,
+    perigoso: false,
   });
 
   useEffect(() => {
@@ -91,7 +94,7 @@ export default function Mercadoria() {
     setForm({
       nome: "",
       codigo: "",
-      quantidade: 1,
+      // quantidade removed
       tipo: "caixa",
       peso: 0,
       comprimento: 0,
@@ -101,7 +104,11 @@ export default function Mercadoria() {
       precoUnitario: 0,
       status: "ativo",
       posicao: "livre",
+      posicao: "livre",
       cor: getRandomColor(),
+      fragilidade: "baixa",
+      empilhavel: true,
+      perigoso: false,
     });
     setErrors({});
     setOpenModal(true);
@@ -143,6 +150,14 @@ export default function Mercadoria() {
 
   const salvarMercadoria = async () => {
     if (!validateForm()) return;
+
+    // Check for duplicate color
+    const corExiste = mercadorias.some(m => m.cor.toLowerCase() === form.cor.toLowerCase() && m.id !== editItem?.id);
+    if (corExiste) {
+      alert("Esta cor já está sendo usada por outra mercadoria. Por favor, escolha outra cor.");
+      return;
+    }
+
     try {
       setLoading(true);
       const dadosParaSalvar = {
@@ -155,7 +170,11 @@ export default function Mercadoria() {
         volume: Number(form.volume),
         precoUnitario: Number(form.precoUnitario),
         posicao: form.posicao || "livre",
+        posicao: form.posicao || "livre",
         cor: form.cor || "#ff7a18",
+        fragilidade: form.fragilidade || "baixa",
+        empilhavel: form.empilhavel !== undefined ? form.empilhavel : true,
+        perigoso: form.perigoso || false,
       };
       const mercadoriasRef = collection(db, "empresas", empresaId, "mercadorias");
       if (editItem) {
@@ -217,7 +236,11 @@ export default function Mercadoria() {
               precoUnitario: Number(row.precoUnitario) || 0,
               status: row.status || "ativo",
               posicao: row.posicao || "livre",
+              posicao: row.posicao || "livre",
               cor: row.cor || "#ff7a18",
+              fragilidade: row.fragilidade || "baixa",
+              empilhavel: row.empilhavel === "true" || row.empilhavel === true,
+              perigoso: row.perigoso === "true" || row.perigoso === true,
             };
             await addDoc(mercadoriasRef, dados);
           }
@@ -246,6 +269,7 @@ export default function Mercadoria() {
       caixa: { icon: Box, color: "bg-blue-100 text-blue-700 border-blue-200" },
       cilindrico: { icon: Circle, color: "bg-purple-100 text-purple-700 border-purple-200" },
       palete: { icon: Package, color: "bg-green-100 text-green-700 border-green-200" },
+      pneu: { icon: Circle, color: "bg-gray-800 text-white border-gray-700" },
     };
     const { icon: Icon, color } = config[tipo] || config.caixa;
 
@@ -257,15 +281,18 @@ export default function Mercadoria() {
     );
   };
 
-  const MetricCard = ({ icon: Icon, title, value, color }) => (
-    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300">
-      <div className="flex items-center justify-between mb-4">
-        <div className={`p-3 rounded-xl ${color} bg-opacity-10`}>
-          <Icon className={`w-6 h-6 ${color.replace('bg-', 'text-')}`} />
+  const MetricCard = ({ icon: Icon, title, value, gradient, iconBg }) => (
+    <div className="relative overflow-hidden bg-white rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300 group">
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-500" style={{ background: gradient }}></div>
+      <div className="p-6 relative z-10">
+        <div className="flex items-center justify-between mb-4">
+          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg ${iconBg}`}>
+            <Icon size={24} />
+          </div>
         </div>
+        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">{title}</h3>
+        <p className="text-3xl font-bold text-slate-900">{value}</p>
       </div>
-      <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">{title}</h3>
-      <p className="text-3xl font-bold text-slate-900">{value}</p>
     </div>
   );
 
@@ -279,9 +306,10 @@ export default function Mercadoria() {
               <Package className="w-8 h-8 text-orange-500" />
               Mercadorias
             </h1>
-            <p className="text-slate-500 mt-1">Gerencie seu inventário de produtos e embalagens.</p>
+            <p className="text-slate-500 mt-1">Gerencie seu catálogo de produtos e embalagens.</p>
           </div>
-          <div className="flex gap-3">
+
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setOpenImportModal(true)}
               className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2 shadow-sm"
@@ -291,7 +319,7 @@ export default function Mercadoria() {
             </button>
             <button
               onClick={abrirModalCriar}
-              className="px-4 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-500/20 flex items-center gap-2"
+              className="px-4 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20 flex items-center gap-2"
             >
               <Plus size={18} />
               Nova Mercadoria
@@ -305,46 +333,49 @@ export default function Mercadoria() {
             icon={Package}
             title="Total de Itens"
             value={mercadorias.length}
-            color="bg-blue-500"
+            gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
+            iconBg="bg-indigo-500"
           />
           <MetricCard
             icon={Box}
             title="Volume Total"
-            value={`${mercadorias.reduce((acc, m) => acc + (m.volume * m.quantidade), 0).toFixed(2)} m³`}
-            color="bg-purple-500"
+            value={`${mercadorias.reduce((acc, m) => acc + (Number(m.volume || 0) * Number(m.quantidade || 1)), 0).toFixed(2)} m³`}
+            gradient="linear-gradient(135deg, #f6d365 0%, #fda085 100%)"
+            iconBg="bg-orange-500"
           />
           <MetricCard
             icon={Scale}
             title="Peso Total"
-            value={`${mercadorias.reduce((acc, m) => acc + (m.peso * m.quantidade), 0).toFixed(0)} kg`}
-            color="bg-emerald-500"
+            value={`${mercadorias.reduce((acc, m) => acc + (Number(m.peso || 0) * Number(m.quantidade || 1)), 0).toFixed(0)} kg`}
+            gradient="linear-gradient(135deg, #84fab0 0%, #8fd3f4 100%)"
+            iconBg="bg-emerald-500"
           />
         </div>
 
         {/* Controls & Search */}
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
+        <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="relative w-full md:w-96">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
             <input
               type="text"
-              placeholder="Buscar por nome ou código..."
+              placeholder="Buscar por nome, código ou tipo..."
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
-              className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
             />
           </div>
 
-          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-lg">
             <button
               onClick={() => setViewMode("grid")}
-              className={`p-2 rounded-lg transition-all ${viewMode === "grid" ? "bg-white text-orange-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+              className={`p-2 rounded-md transition-all ${viewMode === "grid" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               title="Visualização em Grade"
             >
               <LayoutGrid size={20} />
             </button>
             <button
               onClick={() => setViewMode("list")}
-              className={`p-2 rounded-lg transition-all ${viewMode === "list" ? "bg-white text-orange-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+              className={`p-2 rounded-md transition-all ${viewMode === "list" ? "bg-white text-orange-600 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
               title="Visualização em Lista"
             >
               <ListIcon size={20} />
@@ -352,129 +383,120 @@ export default function Mercadoria() {
           </div>
         </div>
 
-        {/* Success Message */}
-        {mensagemSucesso && (
-          <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl animate-fade-in flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-emerald-500" />
-            <p className="text-sm text-emerald-700 font-medium">{mensagemSucesso}</p>
-          </div>
-        )}
-
         {/* Content */}
-        {listaFiltrada.length > 0 ? (
-          viewMode === "grid" ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {listaFiltrada.map((m) => (
-                <div
-                  key={m.id}
-                  className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group"
-                >
-                  <div className="p-5 border-b border-slate-50 flex justify-between items-start">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-lg shadow-md" style={{ backgroundColor: m.cor }}>
-                        {m.nome.charAt(0).toUpperCase()}
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 line-clamp-1">{m.nome}</h3>
-                        <p className="text-xs text-slate-500 font-mono">{m.codigo || "S/C"}</p>
-                      </div>
-                    </div>
-                    <TipoBadge tipo={m.tipo} />
-                  </div>
-
-                  <div className="p-5 space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-slate-50 p-3 rounded-xl">
-                        <p className="text-xs text-slate-500 font-medium uppercase mb-1">Dimensões</p>
-                        <p className="text-sm font-bold text-slate-700">{m.comprimento}×{m.largura}×{m.altura}</p>
-                      </div>
-                      <div className="bg-slate-50 p-3 rounded-xl">
-                        <p className="text-xs text-slate-500 font-medium uppercase mb-1">Peso</p>
-                        <p className="text-sm font-bold text-slate-700">{m.peso} kg</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center justify-between pt-2">
-                      <div className="text-sm text-slate-500">
-                        Qtd: <strong className="text-slate-900">{m.quantidade}</strong>
-                      </div>
-                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button onClick={() => abrirModalEditar(m)} className="p-2 hover:bg-orange-50 text-slate-400 hover:text-orange-600 rounded-lg transition-colors">
-                          <Edit size={16} />
-                        </button>
-                        <button onClick={() => excluirMercadoria(m.id)} className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))}
+        {loading ? (
+          <div className="flex flex-col items-center justify-center h-64 text-slate-400 animate-pulse">
+            <Loader2 size={48} className="animate-spin mb-4 text-orange-500" />
+            <p>Carregando mercadorias...</p>
+          </div>
+        ) : listaFiltrada.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-96 bg-white rounded-3xl border border-dashed border-slate-300 text-slate-400">
+            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+              <Package size={40} className="opacity-50" />
             </div>
-          ) : (
-            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-              <table className="w-full">
-                <thead className="bg-slate-50/50 border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Item</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Tipo</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Dimensões</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Peso</th>
-                    <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Qtd</th>
-                    <th className="px-6 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Ações</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {listaFiltrada.map((m) => (
-                    <tr key={m.id} className="hover:bg-slate-50/80 transition-colors group">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg flex items-center justify-center text-white font-bold text-xs shadow-sm" style={{ backgroundColor: m.cor }}>
-                            {m.nome.charAt(0).toUpperCase()}
-                          </div>
-                          <div>
-                            <p className="font-bold text-slate-900 text-sm">{m.nome}</p>
-                            <p className="text-xs text-slate-500 font-mono">{m.codigo || "-"}</p>
-                          </div>
+            <h3 className="text-lg font-bold text-slate-700">Nenhuma mercadoria encontrada</h3>
+            <p className="max-w-xs text-center mt-2 mb-6">Comece adicionando itens manualmente ou importe uma lista CSV.</p>
+            <button
+              onClick={abrirModalCriar}
+              className="px-6 py-3 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-all shadow-lg shadow-orange-600/20"
+            >
+              Adicionar Primeira Mercadoria
+            </button>
+          </div>
+        ) : (
+          <>
+            {viewMode === "grid" ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                {listaFiltrada.map((item) => (
+                  <div key={item.id} className="group bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-300 overflow-hidden relative">
+                    <div className="h-2 bg-gradient-to-r from-orange-400 to-orange-600" style={{ backgroundColor: item.cor }}></div>
+
+                    <div className="p-5">
+                      <div className="flex justify-between items-start mb-4">
+                        <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-slate-600 font-bold text-xl shadow-inner" style={{ color: item.cor }}>
+                          {item.nome[0].toUpperCase()}
                         </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap"><TipoBadge tipo={m.tipo} /></td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600 font-medium">{m.comprimento}×{m.largura}×{m.altura}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{m.peso} kg</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-slate-700">{m.quantidade}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => abrirModalEditar(m)} className="p-2 hover:bg-orange-50 text-slate-400 hover:text-orange-600 rounded-lg transition-colors">
+                        <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => abrirModalEditar(item)} className="p-2 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-100 transition-colors">
                             <Edit size={16} />
                           </button>
-                          <button onClick={() => excluirMercadoria(m.id)} className="p-2 hover:bg-red-50 text-slate-400 hover:text-red-600 rounded-lg transition-colors">
+                          <button onClick={() => excluirMercadoria(item.id)} className="p-2 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors">
                             <Trash2 size={16} />
                           </button>
                         </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )
-        ) : (
-          <div className="text-center py-20 bg-white rounded-2xl shadow-sm border border-slate-100">
-            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
-              <Package className="w-10 h-10 text-slate-300" />
-            </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Nenhuma mercadoria encontrada</h3>
-            <p className="text-slate-500 max-w-md mx-auto mb-8">
-              Seu inventário está vazio. Adicione itens para começar a planejar suas cargas.
-            </p>
-            <button
-              onClick={abrirModalCriar}
-              className="px-6 py-3 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-500/20 inline-flex items-center gap-2"
-            >
-              <Plus size={20} />
-              Adicionar Item
-            </button>
-          </div>
+                      </div>
+
+                      <h3 className="font-bold text-slate-800 text-lg mb-1 truncate" title={item.nome}>{item.nome}</h3>
+                      <p className="text-xs text-slate-400 font-mono mb-4 bg-slate-50 w-fit px-2 py-1 rounded border border-slate-100">#{item.codigo || "S/COD"}</p>
+
+                      <div className="grid grid-cols-2 gap-3 text-sm text-slate-600">
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
+                          <Ruler size={14} className="text-slate-400" />
+                          <span>{item.comprimento}x{item.largura}x{item.altura}cm</span>
+                        </div>
+                        <div className="flex items-center gap-2 bg-slate-50 p-2 rounded-lg">
+                          <Scale size={14} className="text-slate-400" />
+                          <span>{item.peso}kg</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead className="bg-slate-50/50 border-b border-slate-100">
+                      <tr>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Item</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Dimensões (cm)</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Peso (kg)</th>
+                        <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Cor</th>
+                        <th className="px-6 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Ações</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {listaFiltrada.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50/80 transition-colors group">
+                          <td className="px-6 py-4">
+                            <div className="flex items-center gap-3">
+                              <div className="w-10 h-10 rounded-lg bg-slate-100 flex items-center justify-center font-bold text-slate-600" style={{ color: item.cor }}>
+                                {item.nome[0].toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="font-bold text-slate-800">{item.nome}</p>
+                                <p className="text-xs text-slate-400 font-mono">#{item.codigo || "S/COD"}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600 font-mono">
+                            {item.comprimento} x {item.largura} x {item.altura}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-slate-600 font-mono">
+                            {item.peso}
+                          </td>
+                          <td className="px-6 py-4">
+                            <div className="w-6 h-6 rounded-full border border-slate-200 shadow-sm" style={{ backgroundColor: item.cor }}></div>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => abrirModalEditar(item)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors">
+                                <Edit size={16} />
+                              </button>
+                              <button onClick={() => excluirMercadoria(item.id)} className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
         )}
 
         {/* Modal Criar/Editar */}
@@ -600,6 +622,7 @@ export default function Mercadoria() {
                         <option value="caixa">Caixa</option>
                         <option value="cilindrico">Cilindro</option>
                         <option value="palete">Palete</option>
+                        <option value="pneu">Pneu</option>
                       </select>
                     </div>
                     <div>
@@ -610,6 +633,39 @@ export default function Mercadoria() {
                         <option value="deitado">Deitado</option>
                         <option value="de_lado">De lado</option>
                       </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-semibold text-slate-700 mb-1">Fragilidade</label>
+                      <select className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900" value={form.fragilidade} onChange={(e) => handleChange("fragilidade", e.target.value)}>
+                        <option value="baixa">Baixa</option>
+                        <option value="media">Média</option>
+                        <option value="alta">Alta</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center pt-6">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.empilhavel}
+                          onChange={(e) => handleChange("empilhavel", e.target.checked)}
+                          className="w-5 h-5 rounded border-slate-300 text-orange-600 focus:ring-orange-500"
+                        />
+                        <span className="text-sm font-semibold text-slate-700">Empilhável?</span>
+                      </label>
+                    </div>
+                    <div className="flex items-center pt-6">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={form.perigoso}
+                          onChange={(e) => handleChange("perigoso", e.target.checked)}
+                          className="w-5 h-5 rounded border-slate-300 text-red-600 focus:ring-red-500"
+                        />
+                        <span className="text-sm font-semibold text-slate-700">Perigoso?</span>
+                      </label>
                     </div>
                   </div>
 

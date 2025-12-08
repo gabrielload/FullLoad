@@ -162,7 +162,6 @@ export default function Caminhao() {
     setAltura("");
     setTara("");
     setFoto(null);
-    setFoto(null);
     setEditId(null);
     setErrors({});
   };
@@ -176,7 +175,6 @@ export default function Caminhao() {
     setLargura(cam.tamanhoBau?.W || "");
     setAltura(cam.tamanhoBau?.H || "");
     setTara(cam.tara || "");
-    setFoto(null);
     setFoto(null);
     setErrors({});
     setIsModalOpen(true);
@@ -255,7 +253,7 @@ export default function Caminhao() {
       (c.nome && c.nome.toLowerCase().includes(filtro.toLowerCase())) ||
       (c.modelo && c.modelo.toLowerCase().includes(filtro.toLowerCase())) ||
       (c.placa && c.placa.toLowerCase().includes(filtro.toLowerCase()))
-    );
+    ).filter(c => c.nome && c.modelo && c.placa);
   }, [filtro, lista]);
 
   const totalCaminhoes = listaFiltrada.length;
@@ -263,8 +261,8 @@ export default function Caminhao() {
   const mediaArea = (
     listaFiltrada.reduce((acc, c) => {
       const area =
-        ((c.tamanhoBau?.L || 0) / 100) *
-        ((c.tamanhoBau?.W || 0) / 100);
+        ((Number(c.tamanhoBau?.L) || 0) / 100) *
+        ((Number(c.tamanhoBau?.W) || 0) / 100);
       return acc + area;
     }, 0) / (totalCaminhoes || 1)
   ).toFixed(2);
@@ -272,9 +270,9 @@ export default function Caminhao() {
   const mediaVolume = (
     listaFiltrada.reduce((acc, c) => {
       const area =
-        ((c.tamanhoBau?.L || 0) / 100) *
-        ((c.tamanhoBau?.W || 0) / 100);
-      const volume = area * ((c.tamanhoBau?.H || 0) / 100);
+        ((Number(c.tamanhoBau?.L) || 0) / 100) *
+        ((Number(c.tamanhoBau?.W) || 0) / 100);
+      const volume = area * ((Number(c.tamanhoBau?.H) || 0) / 100);
       return acc + volume;
     }, 0) / (totalCaminhoes || 1)
   ).toFixed(2);
@@ -393,8 +391,8 @@ export default function Caminhao() {
           viewMode === "grid" ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {listaFiltrada.map((cam) => {
-                const area = ((cam.tamanhoBau?.L || 0) / 100) * ((cam.tamanhoBau?.W || 0) / 100);
-                const volume = area * ((cam.tamanhoBau?.H || 0) / 100);
+                const area = ((Number(cam.tamanhoBau?.L) || 0) / 100) * ((Number(cam.tamanhoBau?.W) || 0) / 100);
+                const volume = area * ((Number(cam.tamanhoBau?.H) || 0) / 100);
 
                 return (
                   <div
@@ -416,7 +414,7 @@ export default function Caminhao() {
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-60" />
                       <div className="absolute bottom-4 left-4 text-white">
                         <h3 className="text-lg font-bold">{cam.nome}</h3>
-                        <p className="text-sm opacity-90">{cam.modelo || "Modelo não informado"}</p>
+                        <p className="text-sm opacity-90">{cam.modelo || "-"}</p>
                       </div>
                       <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => handleEditar(cam)} className="p-2 bg-white/20 backdrop-blur-md hover:bg-white text-white hover:text-orange-600 rounded-lg transition-all">
@@ -443,7 +441,7 @@ export default function Caminhao() {
                       <div className="flex items-center justify-between pt-2 border-t border-slate-50">
                         <div className="flex items-center gap-2 text-sm text-slate-500">
                           <Tag size={14} />
-                          <span>{cam.placa || "Sem placa"}</span>
+                          <span>{cam.placa || "-"}</span>
                         </div>
                         <div className="flex items-center gap-2 text-sm text-slate-500">
                           <Box size={14} />
@@ -469,8 +467,8 @@ export default function Caminhao() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {listaFiltrada.map((cam) => {
-                    const area = ((cam.tamanhoBau?.L || 0) / 100) * ((cam.tamanhoBau?.W || 0) / 100);
-                    const volume = area * ((cam.tamanhoBau?.H || 0) / 100);
+                    const area = ((Number(cam.tamanhoBau?.L) || 0) / 100) * ((Number(cam.tamanhoBau?.W) || 0) / 100);
+                    const volume = area * ((Number(cam.tamanhoBau?.H) || 0) / 100);
                     return (
                       <tr key={cam.id} className="hover:bg-slate-50/80 transition-colors group">
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -484,7 +482,7 @@ export default function Caminhao() {
                             </div>
                             <div>
                               <p className="font-bold text-slate-900">{cam.nome}</p>
-                              <p className="text-xs text-slate-500">{cam.modelo || "N/A"} • {cam.placa || "N/A"}</p>
+                              <p className="text-xs text-slate-500">{cam.modelo || "-"} • {cam.placa || "-"}</p>
                             </div>
                           </div>
                         </td>

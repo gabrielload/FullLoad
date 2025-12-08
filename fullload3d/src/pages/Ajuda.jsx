@@ -9,7 +9,7 @@ export default function Ajuda() {
                 <h1 className="text-2xl font-bold text-slate-800 mb-6">Ajuda e Suporte</h1>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group">
+                    <div onClick={() => alert("Documentação em breve!")} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group">
                         <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                             <FileText size={24} />
                         </div>
@@ -17,7 +17,7 @@ export default function Ajuda() {
                         <p className="text-sm text-slate-500">Guias detalhados sobre como usar todas as funcionalidades.</p>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group">
+                    <div onClick={() => window.dispatchEvent(new CustomEvent('openChat'))} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group">
                         <div className="w-12 h-12 bg-green-50 text-green-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                             <MessageCircle size={24} />
                         </div>
@@ -25,7 +25,7 @@ export default function Ajuda() {
                         <p className="text-sm text-slate-500">Fale com nossa equipe de suporte em tempo real.</p>
                     </div>
 
-                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group">
+                    <div onClick={() => window.location.href = "mailto:suporte@fullload.com"} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all cursor-pointer group">
                         <div className="w-12 h-12 bg-orange-50 text-orange-600 rounded-xl flex items-center justify-center mb-4 group-hover:scale-110 transition-transform">
                             <Mail size={24} />
                         </div>

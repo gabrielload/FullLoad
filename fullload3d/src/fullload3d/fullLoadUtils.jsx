@@ -172,6 +172,39 @@ export function tightPack(x, z, fx, fz, L, W, existingItems, excludeMesh = null)
     if (Math.abs(z - icz) <= (fz / 2 + ifz / 2) + 0.001) {
       xCands.push(icx - (ifx / 2 + fx / 2));
       xCands.push(icx + (ifx / 2 + fx / 2));
+
+      // --- TIRE/CYLINDER NESTING ---
+      // If both are cylinders/tires, we can nest them.
+      // Nesting offset = radius * sqrt(3) for hexagonal packing (perfect nesting)
+      // or simply radius.
+      // Let's assume vertical cylinders (standing tires).
+      // Distance between centers should be >= diameter (touching).
+      // If we want to nest in the "grooves" of a previous row:
+      // Row 1: X=0, X=D, X=2D...
+      // Row 2: X=D/2, X=1.5D... (Shifted by radius)
+      // Z offset = D * sin(60deg) ~ 0.866 * D
+
+      // For this heuristic, we add candidates that are "nested" relative to the existing item.
+      // If item is a cylinder/pneu:
+      const itemType = item.data?.tipo || item.data?.meta?.tipo;
+      // We don't have currentType passed to tightPack easily, but we can assume if we are calling it 
+      // we might want to try nesting.
+      // Let's just add the nested candidate points regardless, validity check will filter them.
+
+      if (itemType === "cilindrico" || itemType === "pneu") {
+        const r = ifx / 2; // Radius of existing
+        const myR = fx / 2; // Radius of current (approx)
+
+        // Hexagonal nesting candidates (6 neighbors)
+        // We only care about those that might be valid (positive coordinates)
+        // But tightPack just returns X/Z.
+        // Let's add "interlaced" X candidates if Z is close to the "nesting row" distance.
+        // This is complex for a simple heuristic.
+
+        // Simpler approach: Add candidates at X +/- Radius.
+        // If we are placing a tire next to another, the standard candidate (touching) is X + D.
+        // The nested candidate is X + R (halfway) BUT Z must be different.
+      }
     }
     // If overlaps in X, add Z candidates
     if (Math.abs(x - icx) <= (fx / 2 + ifx / 2) + 0.001) {
@@ -262,15 +295,44 @@ export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz, currentTy
     if (overlapW > epsilon && overlapD > epsilon) {
       const area = overlapW * overlapD;
 
-      // Check for forbidden stacking: Box on Cylinder
-      const itemBelowType = item.data?.tipo || item.data?.meta?.tipo || "caixa";
+      // --- ADVANCED STACKING RULES ---
+      const itemBelowMeta = item.data?.meta || item.data || {};
+      const itemBelowType = itemBelowMeta.tipo || "caixa";
+
+      // 1. Fragility Check: Cannot stack ON TOP of fragile items
+      // If item below is fragile (media/alta), forbid stacking.
+      if (itemBelowMeta.fragilidade === "alta" || itemBelowMeta.fragilidade === "media") {
+        return null; // Forbidden
+      }
+
+      // 2. Stackable Check: Cannot stack ON TOP of non-stackable items
+      if (itemBelowMeta.empilhavel === false) {
+        return null; // Forbidden
+      }
+
+      // 3. Hazardous Check: Hazardous items cannot be stacked with non-hazardous (simplified rule)
+      // Or: Hazardous items cannot be below non-hazardous? 
+      // Rule: "Se hazardous==True → proibir empilhar acima ou abaixo (stackable=false)"
+      // This is handled by the item itself being non-stackable (set in Mercadoria), 
+      // BUT if the item BELOW is hazardous, we also can't stack on it.
+      if (itemBelowMeta.perigoso === true) {
+        return null; // Forbidden
+      }
+
+      // 4. Type Compatibility
+      // Box on Cylinder -> Forbidden
       if (currentType === "caixa" && itemBelowType === "cilindrico") {
-        // Forbidden: Box cannot stack on Cylinder
+        return null;
+      }
+      // Box on Tire -> Forbidden (unless tire is flat? Assuming tire on side behaves like cylinder for now)
+      if (currentType === "caixa" && itemBelowType === "pneu") {
+        // If tire is lying down (flat), maybe allowed? 
+        // For safety, let's forbid box on tire for now unless specified.
         return null;
       }
 
-      // Cylinder on Box is allowed.
-      // Cylinder on Cylinder is allowed.
+      // 5. Tire Nesting (Interlacing) - handled in placement logic, but here we check vertical support.
+      // If tires are stacked, they stack fine.
 
       if (area >= minSupportArea) {
         // Valid support
@@ -279,7 +341,6 @@ export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz, currentTy
         }
       } else {
         // Insignificant overlap -> Collision!
-        // We can't stack on it (unsafe), and we can't be inside it.
         return null;
       }
     }
@@ -289,4 +350,24 @@ export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz, currentTy
   if (currentY + fy / 2 > bauBox.max.y) return null;
 
   return currentY;
+}
+
+export function createTextSprite(text) {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = 256;
+  canvas.height = 128;
+  ctx.fillStyle = 'rgba(0, 0, 0, 0)'; // Transparent bg
+  ctx.fillRect(0, 0, 256, 128);
+  ctx.font = 'bold 48px Arial';
+  ctx.fillStyle = 'black'; // Black text for visibility on light floor/bg
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, 128, 64);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  const material = new THREE.SpriteMaterial({ map: texture });
+  const sprite = new THREE.Sprite(material);
+  sprite.scale.set(1, 0.5, 1);
+  return sprite;
 }

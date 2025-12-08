@@ -14,8 +14,10 @@ import {
   round2,
   tightPack,
   supportTopAt,
-  computeStackY
+  computeStackY,
+  createTextSprite
 } from "./fullLoadUtils";
+import { optimize } from "./fullLoadOptimizer";
 
 /*
   fullLoadEngine.js
@@ -35,6 +37,93 @@ let rafId = null;
 let running = false;
 let _engineAPI = null; // module-level pointer
 
+// Undo/Redo Stacks
+const historyStack = [];
+const redoStack = [];
+const MAX_HISTORY = 50;
+
+function saveState() {
+  const currentState = Array.from(placed.values()).map(p => ({
+    id: p.data.id,
+    position: { ...p.mesh.position },
+    rotation: { ...p.mesh.rotation },
+    scale: { ...p.mesh.scale },
+    meta: { ...p.data.item }, // Clone item data
+    colocId: p.data.id
+  }));
+
+  historyStack.push(currentState);
+  if (historyStack.length > MAX_HISTORY) historyStack.shift();
+
+  // Clear redo stack on new action
+  redoStack.length = 0;
+
+  // Notify UI
+  dispatchHistoryEvent();
+}
+
+function restoreState(state) {
+  // Clear current scene items
+  Array.from(placed.values()).forEach(p => {
+    scene.remove(p.mesh);
+    if (p.mesh.geometry) p.mesh.geometry.dispose();
+  });
+  placed.clear();
+
+  // Re-create items from state
+  state.forEach(itemData => {
+    // Re-use place logic but bypass saveState
+    placeItemInternal(itemData.position, itemData.rotation, itemData.meta, itemData.colocId);
+  });
+
+  dispatchHistoryEvent();
+}
+
+function internalUndo() {
+  if (historyStack.length === 0) return;
+
+  // Save current state to redo
+  const currentState = Array.from(placed.values()).map(p => ({
+    id: p.data.id,
+    position: { ...p.mesh.position },
+    rotation: { ...p.mesh.rotation },
+    scale: { ...p.mesh.scale },
+    meta: { ...p.data.item },
+    colocId: p.data.id
+  }));
+  redoStack.push(currentState);
+
+  const prevState = historyStack.pop();
+  restoreState(prevState);
+}
+
+function internalRedo() {
+  if (redoStack.length === 0) return;
+
+  // Save current state to history
+  const currentState = Array.from(placed.values()).map(p => ({
+    id: p.data.id,
+    position: { ...p.mesh.position },
+    rotation: { ...p.mesh.rotation },
+    scale: { ...p.mesh.scale },
+    meta: { ...p.data.item },
+    colocId: p.data.id
+  }));
+  historyStack.push(currentState);
+
+  const nextState = redoStack.pop();
+  restoreState(nextState);
+}
+
+function dispatchHistoryEvent() {
+  window.dispatchEvent(new CustomEvent("fullLoad_history", {
+    detail: {
+      canUndo: historyStack.length > 0,
+      canRedo: redoStack.length > 0
+    }
+  }));
+}
+
 const ROTATION_STATES = [
   [0, 0, 0],
   [0, Math.PI / 2, 0],
@@ -52,7 +141,8 @@ export function initFullLoadEngine(container, initialBau = null) {
 
   // 1. Scene & Camera
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xffffff); // White background
+  // scene.background = new THREE.Color(0xffffff); // Removed to allow CSS gradient
+  scene.background = null;
 
   // Isometric-ish camera setup
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
@@ -167,6 +257,8 @@ export function initFullLoadEngine(container, initialBau = null) {
 
   // selection highlight utilities
   let selectedId = null;
+  let hoveredId = null;
+
   function highlightSelect(mesh) {
     clearHighlight();
     if (!mesh || !mesh.material) return;
@@ -226,6 +318,19 @@ export function initFullLoadEngine(container, initialBau = null) {
       box.getSize(sizeVec);
       const size = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
 
+      // 0. Size Check (Must fit in truck)
+      if (size.x > bauInnerBox.max.x || size.y > bauInnerBox.max.y || size.z > bauInnerBox.max.z) {
+        ghostMesh.material.color.setHex(0xff0000);
+        ghostMesh.material.opacity = 0.8;
+        ghost.userData.isValid = false;
+        ghost.userData.error = "Item maior que o baú!";
+        // Center it just to show it
+        ghost.position.set(bauInnerBox.max.x / 2, size.y / 2, bauInnerBox.max.z / 2);
+        return;
+      } else {
+        ghost.userData.error = null;
+      }
+
       // 1. Tight Pack (Magnetic Snap)
       const existingItems = Array.from(placed.values());
       const packed = tightPack(gx, gz, size.x, size.z, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
@@ -265,11 +370,234 @@ export function initFullLoadEngine(container, initialBau = null) {
       // Final position update
       ghost.position.set(gx, gy, gz);
 
+      // --- HOVER DETECTION ---
+      // Raycast against placed items to detect hover
+      const placedMeshes = Array.from(placed.values()).map(p => p.mesh);
+      const intersects = raycaster.intersectObjects(placedMeshes, false);
+
+      if (intersects.length > 0) {
+        const mesh = intersects[0].object;
+        const id = mesh.userData.colocId;
+        if (id !== hoveredId) {
+          hoveredId = id;
+          // Optional: Highlight hovered item differently?
+          // For now, just tracking it is enough for the delete logic.
+        }
+      } else {
+        hoveredId = null;
+      }
+
     } catch (err) {
       console.error("onPointerMove error:", err);
     }
   }
   renderer.domElement.addEventListener("pointermove", onPointerMove);
+
+  function placeItemAt(position, rotation, meta) {
+    saveState(); // Save before placing
+    placeItemInternal(position, rotation, meta);
+  }
+
+  function placeItemInternal(position, rotation, meta, existingId = null, overrideSize = null) {
+    const colocId = existingId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `item_${Date.now()}_${Math.random()}`);
+    const currentType = meta.tipo || "caixa";
+    // Use overrideSize if provided, otherwise fallback to ghost (legacy behavior)
+    const size = overrideSize || (ghost && ghost.children[0] ? ghost.children[0].userData._size : { x: 1, y: 1, z: 1 });
+
+    if (!size) {
+      console.error("placeItemInternal: Size not defined!");
+      return null;
+    }
+
+    let mesh;
+    if (currentType === "cilindrico") {
+      mesh = createCylinderMesh({ diameter: size.x, height: size.y, color: meta.cor || "#333" });
+    } else if (currentType === "pneu") {
+      const radius = size.y / 2;
+      const width = size.x;
+      mesh = createTireMesh({ radius, width, color: meta.cor || "#111" });
+    } else {
+      mesh = createBoxMesh([size.x, size.y, size.z], meta.cor || "#ff7a18");
+    }
+
+    mesh.userData._size = size;
+    mesh.position.copy(position);
+    mesh.rotation.copy(rotation);
+    mesh.userData.colocId = colocId;
+    mesh.userData.meta = meta;
+
+    // HARD BLOCK: Strict Boundary Check
+    // Calculate AABB *before* adding to scene
+    const box = new THREE.Box3().setFromObject(mesh);
+
+    if (bauInnerBox) {
+      // Tolerance of 0.001 (1mm) to avoid floating point issues, but strictly enforce "inside"
+      const tolerance = 0.001;
+      if (box.min.x < bauInnerBox.min.x - tolerance ||
+        box.min.y < bauInnerBox.min.y - tolerance ||
+        box.min.z < bauInnerBox.min.z - tolerance ||
+        box.max.x > bauInnerBox.max.x + tolerance ||
+        box.max.y > bauInnerBox.max.y + tolerance ||
+        box.max.z > bauInnerBox.max.z + tolerance) {
+
+        console.error("HARD BLOCK: Item rejected by engine (outside bounds)", {
+          item: meta.nome,
+          box: { min: box.min, max: box.max },
+          truck: bauInnerBox
+        });
+
+        // Dispose and return null
+        if (mesh.geometry) mesh.geometry.dispose();
+        if (mesh.material) mesh.material.dispose();
+        return null;
+      }
+    }
+
+    scene.add(mesh);
+
+    const aabb = { min: box.min, max: box.max };
+    const entry = { mesh, data: meta, aabb };
+    placed.set(colocId, entry);
+
+    window.dispatchEvent(new CustomEvent("fullLoad_updated")); // Notify update
+    return entry;
+  }
+
+  function removeItem(colocId) {
+    if (!placed.has(colocId)) return;
+    saveState(); // Save before removing
+    const entry = placed.get(colocId);
+    scene.remove(entry.mesh);
+    if (entry.mesh.geometry) entry.mesh.geometry.dispose();
+    placed.delete(colocId);
+    window.dispatchEvent(new CustomEvent("fullLoad_updated"));
+    window.dispatchEvent(new CustomEvent("fullLoad_itemDeselected"));
+  }
+
+  function clearScene() {
+    saveState(); // Save before clearing
+    Array.from(placed.values()).forEach((p) => {
+      scene.remove(p.mesh);
+      if (p.mesh.geometry) p.mesh.geometry.dispose();
+    });
+    placed.clear();
+    window.dispatchEvent(new CustomEvent("fullLoad_updated"));
+    window.dispatchEvent(new CustomEvent("fullLoad_itemDeselected"));
+  }
+
+  function onClick(e) {
+    if (!ghost.visible) return;
+
+    if (!ghost.userData.isValid) {
+      if (ghost.userData.error) {
+        // Dispatch error to UI
+        window.dispatchEvent(new CustomEvent("fullLoad_error", { detail: { message: ghost.userData.error } }));
+      }
+      return;
+    }
+
+    const ghostMesh = ghost.children[0];
+    if (!ghostMesh) return;
+    const meta = ghostMesh.userData._meta;
+    const size = ghostMesh.userData._size;
+
+    // Shift + Click: Horizontal Fill (Side-by-side) - WAS VERTICAL
+    if (e.shiftKey) {
+      let currentZ = ghost.position.z;
+
+      // Place first item
+      placeItemAt(ghost.position, ghostMesh.rotation, meta);
+
+      // Stack sideways (Z axis)
+      while (true) {
+        currentZ += size.z;
+        if (currentZ + size.z / 2 > bauInnerBox.max.z) break;
+
+        const newPos = new THREE.Vector3(ghost.position.x, ghost.position.y, currentZ);
+        const existingItems = Array.from(placed.values());
+        if (checkOverlap(newPos, size, existingItems)) break;
+
+        placeItemAt(newPos, ghostMesh.rotation, meta);
+      }
+      console.log("Horizontal fill complete");
+    }
+    // Alt + Click: Vertical Fill (Stacking) - WAS HORIZONTAL
+    else if (e.altKey) {
+      let currentY = ghost.position.y;
+
+      // Place first item
+      placeItemAt(ghost.position, ghostMesh.rotation, meta);
+
+      // Stack upwards until ceiling
+      while (true) {
+        currentY += size.y;
+        if (currentY + size.y / 2 > bauInnerBox.max.y) break;
+
+        const newPos = new THREE.Vector3(ghost.position.x, currentY, ghost.position.z);
+        // Check overlap
+        const existingItems = Array.from(placed.values());
+        if (checkOverlap(newPos, size, existingItems)) break;
+
+        placeItemAt(newPos, ghostMesh.rotation, meta);
+      }
+      console.log("Vertical fill complete");
+    }
+    // Single Click: Place Item (Moved from Double Click)
+    else {
+      placeItemAt(ghost.position, ghostMesh.rotation, meta);
+
+      const lastId = Array.from(placed.keys()).pop();
+      const entry = placed.get(lastId);
+      if (entry) {
+        highlightSelect(entry.mesh);
+        window.dispatchEvent(new CustomEvent("fullLoad_itemSelected", {
+          detail: { item: meta, id: lastId }
+        }));
+      }
+    }
+  }
+  renderer.domElement.addEventListener("click", onClick);
+
+  // Removed onDblClick as it is no longer needed for placement
+  // function onDblClick(e) { ... }
+  // renderer.domElement.addEventListener("dblclick", onDblClick);
+
+  function onPointerDown(e) {
+    // Only handle left click
+    if (e.button !== 0) return;
+
+    // Calculate mouse position
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+
+    // Get all placed meshes
+    const placedMeshes = Array.from(placed.values()).map(p => p.mesh);
+    const intersects = raycaster.intersectObjects(placedMeshes, false);
+
+    if (intersects.length > 0) {
+      // Clicked on an item
+      const mesh = intersects[0].object;
+      highlightSelect(mesh);
+
+      const entry = placed.get(mesh.userData.colocId);
+      if (entry) {
+        window.dispatchEvent(new CustomEvent("fullLoad_itemSelected", {
+          detail: {
+            item: entry.data,
+            id: entry.mesh.userData.colocId
+          }
+        }));
+      }
+    } else {
+      // Clicked on empty space (or floor)
+      clearHighlight();
+      window.dispatchEvent(new CustomEvent("fullLoad_itemDeselected"));
+    }
+  }
+  renderer.domElement.addEventListener("pointerdown", onPointerDown);
 
   // Helper: Check if item overlaps with others
   function checkOverlap(pos, size, existingItems) {
@@ -395,7 +723,10 @@ export function initFullLoadEngine(container, initialBau = null) {
 
     // Delete
     if (e.key === "Delete" || e.key === "Backspace") {
-      if (selectedId) {
+      if (hoveredId) {
+        window.dispatchEvent(new CustomEvent("fullLoad_remove", { detail: { colocId: hoveredId } }));
+        hoveredId = null; // Clear hover after delete
+      } else if (selectedId) {
         window.dispatchEvent(new CustomEvent("fullLoad_remove", { detail: { colocId: selectedId } }));
       }
     }
@@ -483,6 +814,7 @@ export function initFullLoadEngine(container, initialBau = null) {
       placed.delete(colocId);
     }
     if (selectedId === colocId) selectedId = null;
+    window.dispatchEvent(new CustomEvent("fullLoad_updated"));
   });
 
   // ---------------------------
@@ -541,27 +873,29 @@ export function initFullLoadEngine(container, initialBau = null) {
     // 1. Floor (Solid)
     const floorGeo = new THREE.BoxGeometry(L, 0.05, W);
     const floorMat = new THREE.MeshStandardMaterial({
-      color: 0x555555,
-      roughness: 0.4,
-      metalness: 0.3
+      color: 0xeeeeee,
+      roughness: 0.8,
+      metalness: 0.2
     });
     const floorMesh = new THREE.Mesh(floorGeo, floorMat);
     floorMesh.position.set(L / 2, -0.025, W / 2); // Just below y=0
     floorMesh.receiveShadow = true;
     bauGroup.add(floorMesh);
 
-    // 2. Walls (Semi-transparent)
-    const wallMat = new THREE.MeshStandardMaterial({
-      color: 0xaaaaaa,
+    // 2. Walls (Glassmorphism)
+    const wallMat = new THREE.MeshPhysicalMaterial({
+      color: 0xffffff,
+      metalness: 0.1,
+      roughness: 0.05,
+      transmission: 0.2, // Glass-like transmission
       transparent: true,
-      opacity: 0.15,
+      opacity: 0.3,
       side: THREE.DoubleSide,
-      roughness: 0.5
     });
 
-    // Front Wall (at x=L) - The "Cab" end
+    // Front Wall (at x=0) - The "Cab" end (Peito)
     const frontWall = new THREE.Mesh(new THREE.BoxGeometry(0.05, H, W), wallMat);
-    frontWall.position.set(L + 0.025, H / 2, W / 2);
+    frontWall.position.set(-0.025, H / 2, W / 2); // At x=0
     bauGroup.add(frontWall);
 
     // Side Walls (at z=0 and z=W)
@@ -589,15 +923,68 @@ export function initFullLoadEngine(container, initialBau = null) {
 
     // add group and set bauInnerBox coords
     bauGroup.position.set(0, 0, 0);
-    // Label "FUNDO"
+    // Label "Peito" (Front/Cab) at x=0
     const label = createTextSprite("Peito");
-    label.position.set(L - 0.1, H / 2, W / 2); // Near the back wall
+    label.position.set(0.1, H / 2, W / 2);
     bauGroup.add(label);
 
-    // Label "PEITO" (Front)
+    // Label "Fundo" (Back/Door) at x=L
     const labelPeito = createTextSprite("Fundo");
-    labelPeito.position.set(0.1, H / 2, W / 2);
+    labelPeito.position.set(L - 0.1, H / 2, W / 2);
     bauGroup.add(labelPeito);
+
+    // --- CABIN VISUAL (Peito) ---
+    // Industrial Material (Metallic, Transparent)
+    const cabinMat = new THREE.MeshPhysicalMaterial({
+      color: 0x334155, // Slate-700
+      metalness: 0.6,
+      roughness: 0.2,
+      transmission: 0.1, // Slight glass effect
+      transparent: true,
+      opacity: 0.7,
+      side: THREE.DoubleSide
+    });
+
+    // 1. Main Cabin (Head)
+    const cabinGeo = new THREE.BoxGeometry(1.5, H * 0.8, W);
+    const cabin = new THREE.Mesh(cabinGeo, cabinMat);
+    cabin.position.set(-0.8, H * 0.4, W / 2); // Positioned before x=0
+    bauGroup.add(cabin);
+
+    // 2. Cabin Nose (Engine Block) - The "smaller square" requested
+    const noseGeo = new THREE.BoxGeometry(1.0, H * 0.5, W * 0.8);
+    const nose = new THREE.Mesh(noseGeo, cabinMat);
+    nose.position.set(-2.05, H * 0.25, W / 2); // In front of cabin (-1.55 - 0.5)
+    bauGroup.add(nose);
+
+    // Cabin Window
+    const windowGeo = new THREE.BoxGeometry(0.1, H * 0.3, W * 0.8);
+    const windowMat = new THREE.MeshStandardMaterial({
+      color: 0x94a3b8,
+      transparent: true,
+      opacity: 0.5
+    });
+    const cabWindow = new THREE.Mesh(windowGeo, windowMat);
+    cabWindow.position.set(-0.1, H * 0.5, W / 2);
+    bauGroup.add(cabWindow);
+
+    // --- LOGO ---
+    const textureLoader = new THREE.TextureLoader();
+    textureLoader.load('/logo.png', (texture) => {
+      const logoMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.8 });
+      const logo = new THREE.Sprite(logoMat);
+      logo.scale.set(1, 1, 1);
+      logo.position.set(L / 2, 0.05, W / 2); // Center of floor
+      // Rotate sprite to lie flat? Sprites always face camera.
+      // If we want it flat on floor, use a Plane.
+
+      const planeGeo = new THREE.PlaneGeometry(1.5, 1.5);
+      const planeMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
+      const logoPlane = new THREE.Mesh(planeGeo, planeMat);
+      logoPlane.rotation.x = -Math.PI / 2;
+      logoPlane.position.set(L / 2, 0.03, W / 2);
+      bauGroup.add(logoPlane);
+    });
 
     scene.add(bauGroup);
 
@@ -641,10 +1028,23 @@ export function initFullLoadEngine(container, initialBau = null) {
       try {
         if (tipo === "cilindrico") {
           const outer = cmToM(data.meta?.largura || data.largura || 230);
-          // const tube = cmToM(data.meta?.comprimento || data.comprimento || 30);
           const height = cmToM(data.meta?.altura || data.altura || 30);
           mesh = createCylinderMesh({ diameter: outer, height, color: data.meta?.color || "#333" });
           mesh.userData._size = { x: outer, y: height, z: outer };
+        } else if (tipo === "pneu") {
+          const radius = cmToM((data.meta?.largura || data.largura || 60) / 2);
+          const width = cmToM(data.meta?.comprimento || data.comprimento || 20);
+          mesh = createTireMesh({ radius, width, color: data.meta?.color || "#111" });
+          // Tire size: X=Width (thickness), Y=Diameter, Z=Diameter (when rotated on side)
+          // But createTireMesh rotates it. 
+          // Let's standardise: Pneu usually stands up or lies down.
+          // If lying down (default createTireMesh): Height is width. Diameter is X/Z.
+          // createTireMesh rotates Z 90deg. So axis is X.
+          // Wait, createTireMesh in utils: geometry.rotateZ(Math.PI / 2).
+          // Cylinder default is Y-up. Rotate Z 90 -> X-up.
+          // So width is along X. Radius is Y/Z.
+          const diameter = radius * 2;
+          mesh.userData._size = { x: width, y: diameter, z: diameter };
         } else {
           const sx = data.scale?.[0] ?? cmToM((data.meta?.comprimento || data.comprimento) || 50);
           const sy = data.scale?.[1] ?? cmToM((data.meta?.altura || data.altura) || 50);
@@ -688,6 +1088,18 @@ export function initFullLoadEngine(container, initialBau = null) {
       mesh.material.transparent = true;
       mesh.material.opacity = 0.35;
       mesh.userData._size = { x: outer, y: height, z: outer };
+      mesh.userData._meta = merc;
+      ghost.add(mesh);
+      ghost.visible = true;
+    } else if (tipo === "pneu") {
+      const radius = cmToM((merc.largura || merc.W || 60) / 2);
+      const width = cmToM(merc.comprimento || merc.L || 20);
+      const mesh = createTireMesh({ radius, width, color: merc.color || "#111" });
+      mesh.material = mesh.material.clone();
+      mesh.material.transparent = true;
+      mesh.material.opacity = 0.35;
+      const diameter = radius * 2;
+      mesh.userData._size = { x: width, y: diameter, z: diameter };
       mesh.userData._meta = merc;
       ghost.add(mesh);
       ghost.visible = true;
@@ -737,7 +1149,6 @@ export function initFullLoadEngine(container, initialBau = null) {
     try { renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored); } catch { }
     try { window.removeEventListener("keydown", onKeyDown); } catch { }
     try { window.removeEventListener("fullLoad_placeManual", onPlaceManual); } catch { }
-    try { window.removeEventListener("fullLoad_removedExternamente", onExternalRemove); } catch { }
     try { window.removeEventListener("fullLoad_remove", () => { }); } catch { }
 
     try {
@@ -829,6 +1240,7 @@ export function initFullLoadEngine(container, initialBau = null) {
       console.warn("addMercadoriaAuto: bau ainda não foi definido.");
       return [];
     }
+    saveState();
 
     const placedResults = [];
     let existingItems = Array.from(placed.values());
@@ -856,8 +1268,6 @@ export function initFullLoadEngine(container, initialBau = null) {
       }
 
       // Generate Candidate Points
-      // Candidates are: (0,0,0) AND (item.max.x, item.max.y, item.max.z) for all existing items
-      // We filter coordinates to be within truck bounds.
       let xCands = new Set([0]);
       let yCands = new Set([0]);
       let zCands = new Set([0]);
@@ -868,21 +1278,20 @@ export function initFullLoadEngine(container, initialBau = null) {
         if (item.aabb.max.z < bauInnerBox.max.z) zCands.add(item.aabb.max.z);
       }
 
-      const sortedX = Array.from(xCands).sort((a, b) => a - b); // Front to Back (Min X first)
-      const sortedY = Array.from(yCands).sort((a, b) => a - b); // Bottom to Top
-      const sortedZ = Array.from(zCands).sort((a, b) => a - b); // Left to Right
+      const sortedX = Array.from(xCands).sort((a, b) => a - b);
+      const sortedY = Array.from(yCands).sort((a, b) => a - b);
+      const sortedZ = Array.from(zCands).sort((a, b) => a - b);
 
       let bestFit = null;
 
-      // Iterate candidates: X (Front) -> Y (Bottom) -> Z (Left)
       searchLoop:
       for (const x of sortedX) {
         for (const y of sortedY) {
           for (const z of sortedZ) {
+            let bestRotForPos = null;
+
             for (const config of allowedRotations) {
               const dims = config.dims;
-
-              // Candidate position is the anchor point (min x, min y, min z)
               const posX = x;
               const posY = y;
               const posZ = z;
@@ -893,338 +1302,265 @@ export function initFullLoadEngine(container, initialBau = null) {
               };
 
               if (!wouldCollide(candidateAABB, existingItems)) {
-                // Check support (gravity)
                 const supportY = supportTopAt(candidateAABB, existingItems);
+                if (Math.abs(posY - supportY) > 0.001) continue;
 
-                // For tight packing, we want the item to rest on something.
-                // If y > supportY, it's floating.
-                // If y < supportY, it's overlapping (but wouldCollide handles that).
-                // So we basically want y == supportY.
-                // Since we iterate Y candidates which are derived from item max Ys,
-                // it's possible that 'y' is exactly 'supportY'.
-                // But if there's a gap, 'y' might be higher.
-                // We should only accept if y is very close to supportY.
-
-                if (Math.abs(posY - supportY) > 0.001) {
-                  continue;
+                const footprint = dims.x * dims.z;
+                if (!bestRotForPos || footprint > bestRotForPos.footprint) {
+                  bestRotForPos = {
+                    position: { x: posX, y: posY, z: posZ },
+                    dims: dims,
+                    rotation: config,
+                    footprint: footprint
+                  };
                 }
-
-                bestFit = {
-                  position: { x: posX, y: posY, z: posZ },
-                  dims: dims,
-                  rotation: config
-                };
-                break searchLoop;
               }
+            }
+
+            if (bestRotForPos) {
+              bestFit = bestRotForPos;
+              break searchLoop;
             }
           }
         }
       }
 
       if (bestFit) {
-        // Place the item
-        let mesh;
-        try {
-          if ((mercadoria.tipo || mercadoria.meta?.tipo) === "cilindrico") {
-            const outer = bestFit.dims.x;
-            mesh = createCylinderMesh({ diameter: outer, height: bestFit.dims.y, color: mercadoria.color || "#333" });
-            mesh.userData._size = bestFit.dims;
-          } else {
-            mesh = createBoxMesh(
-              [bestFit.dims.x, bestFit.dims.y, bestFit.dims.z],
-              mercadoria.cor || mercadoria.color || "#ff7a18"
-            );
-            mesh.userData._size = bestFit.dims;
-          }
+        const meta = { ...mercadoria, cor: mercadoria.cor || mercadoria.color || "#ff7a18" };
 
-          // Position at center of box
-          const centerPos = {
-            x: bestFit.position.x + bestFit.dims.x / 2,
-            y: bestFit.position.y + bestFit.dims.y / 2,
-            z: bestFit.position.z + bestFit.dims.z / 2
-          };
+        // Calculate Center Position (placeItemInternal expects center)
+        // bestFit.position is the corner (minX, minY, minZ)
+        const centerX = bestFit.position.x + bestFit.dims.x / 2;
+        const centerY = bestFit.position.y + bestFit.dims.y / 2;
+        const centerZ = bestFit.position.z + bestFit.dims.z / 2;
 
-          mesh.position.set(centerPos.x, centerPos.y, centerPos.z);
-          mesh.rotation.set(bestFit.rotation.rot[0], bestFit.rotation.rot[1], bestFit.rotation.rot[2]);
+        const entry = placeItemInternal(
+          new THREE.Vector3(centerX, centerY, centerZ),
+          new THREE.Euler(bestFit.rotation.rot[0], bestFit.rotation.rot[1], bestFit.rotation.rot[2]),
+          meta,
+          colocId,
+          bestFit.dims // Pass explicit size!
+        );
 
-          mesh.userData.colocId = colocId;
-          mesh.userData.meta = mercadoria;
-
-          scene.add(mesh);
-
-          const box = new THREE.Box3().setFromObject(mesh);
-          const aabb = { min: box.min, max: box.max };
-
-          const entry = { mesh, data: mercadoria, aabb };
-          placed.set(colocId, entry);
+        if (entry) {
+          placedResults.push(entry);
           existingItems.push(entry);
-
-          placedResults.push({
-            id: colocId,
-            position: [centerPos.x, centerPos.y, centerPos.z],
-            rotation: bestFit.rotation.rot,
-            scale: [bestFit.dims.x, bestFit.dims.y, bestFit.dims.z],
-            tipo: mercadoria.tipo || "caixa",
-            meta: mercadoria
-          });
-
-          console.log(`✅ Item colocado em (${centerPos.x.toFixed(2)}, ${centerPos.y.toFixed(2)}, ${centerPos.z.toFixed(2)})`);
-
-        } catch (err) {
-          console.error("Erro ao criar mesh auto:", err);
+        } else {
+          console.warn("Item rejected by engine (Hard Block):", mercadoria.nome);
         }
       } else {
-        console.warn("❌ Não foi possível colocar mercadoria — sem espaço adequado.");
-        window.dispatchEvent(new CustomEvent("fullLoad_error", {
-          detail: {
-            message: `Não foi possível alocar o item ${mercadoria.nome || 'Mercadoria'} (${dimL}x${dimH}x${dimW}m). Verifique o espaço disponível.`,
-            item: mercadoria
-          }
-        }));
+        console.warn("Não foi possível encaixar item auto:", mercadoria.nome);
       }
     }
-
     return placedResults;
   }
 
-  function setGhostObject(merc) {
-    setGhostMeta(merc);
-  }
+  async function optimizeLoad() {
+    console.log("Otimizando carga (Regra de Ouro)...");
+    saveState();
 
-  function clearScene() {
-    for (const [k, v] of Array.from(placed.entries())) {
-      try { scene.remove(v.mesh); } catch { }
-      placed.delete(k);
-    }
-    ghost.visible = false;
-  }
-
-  function captureSnapshot(view = "iso") {
-    if (!bauInnerBox) return null;
-
-    const L = bauInnerBox.max.x;
-    const W = bauInnerBox.max.z;
-    const H = bauInnerBox.max.y;
-
-    const oldPos = camera.position.clone();
-    const oldQuat = camera.quaternion.clone();
-    const oldTarget = controls.target.clone();
-
-    controls.target.set(L / 2, H / 2, W / 2);
-
-    if (view === "iso") {
-      camera.position.set(-L * 0.5, H * 3, W * 2.5);
-    } else if (view === "top") {
-      camera.position.set(L / 2, H * 4, W / 2);
-    } else if (view === "side") {
-      camera.position.set(L / 2, H / 2, W * 3);
-    } else if (view === "back") {
-      camera.position.set(-L, H / 2, W / 2);
-    }
-
-    camera.lookAt(controls.target);
-    controls.update();
-
-    renderer.render(scene, camera);
-    const dataURL = renderer.domElement.toDataURL("image/png");
-
-    camera.position.copy(oldPos);
-    camera.quaternion.copy(oldQuat);
-    controls.target.copy(oldTarget);
-    controls.update();
-    renderer.render(scene, camera);
-
-    return dataURL;
-  }
-
-  function optimizeLoad() {
     if (!bauInnerBox) {
-      console.warn("optimizeLoad: Bau not defined");
+      window.dispatchEvent(new CustomEvent("fullLoad_error", { detail: { message: "Baú não definido!" } }));
       return;
     }
 
-    const items = Array.from(placed.values()).map(entry => entry.data.meta || entry.data);
+    // Get current items (or from a list if passed)
+    // For now, let's optimize what's currently placed + maybe a queue?
+    // Actually, usually optimization is done on a list of items to be loaded.
+    // Let's assume we take all currently placed items and re-pack them.
+    const currentItems = Array.from(placed.values()).map(p => {
+      // Handle inconsistency: setItems stores {..., meta: {...}} but placeItemInternal stores meta directly
+      const raw = p.data;
+      const meta = raw.meta || raw;
 
-    if (items.length === 0) {
-      console.warn("optimizeLoad: No items to optimize");
-      return;
-    }
-
-    console.log(`🔄 Otimizando carga com ${items.length} itens...`);
-
-    clearScene();
-
-    items.sort((a, b) => {
-      const getDims = (item) => {
-        const l = Number(item.comprimento || item.L || 50);
-        const h = Number(item.altura || item.H || 50);
-        const w = Number(item.largura || item.W || 50);
-        return { l, h, w, vol: l * h * w, max: Math.max(l, h, w) };
+      return {
+        id: p.mesh.userData.colocId || raw.id,
+        ...meta, // Spread meta properties (including cor/color)
+        meta: meta,
       };
-      const dA = getDims(a);
-      const dB = getDims(b);
-
-      if (Math.abs(dB.vol - dA.vol) > 1) return dB.vol - dA.vol;
-      if (Math.abs(dB.h - dA.h) > 0.1) return dB.h - dA.h;
-      return dB.max - dA.max;
     });
 
-    let successCount = 0;
-    for (const item of items) {
-      const result = addMercadoriaAuto(item, 1);
-      if (result && result.length > 0) successCount++;
-    }
+    try {
+      // Notify start
+      window.dispatchEvent(new CustomEvent("fullLoad_optimizing", { detail: { status: "start" } }));
 
-    console.log(`✅ Otimização concluída. ${successCount}/${items.length} itens realocados.`);
+      const truckDims = {
+        L: bauInnerBox.max.x,
+        H: bauInnerBox.max.y,
+        W: bauInnerBox.max.z
+      };
+
+      console.log("Optimizer Input - Truck:", truckDims);
+      console.log("Optimizer Input - Items:", currentItems.length, currentItems[0]);
+
+      const result = await optimize(currentItems, truckDims);
+
+      console.log("Optimizer Output:", result);
+
+      // Apply result
+      clearScene(false); // Clear but don't reset camera/bau
+
+      result.placed.forEach(p => {
+        // Safety Check: Verify bounds
+        const halfL = p.scale[0] / 2;
+        const halfH = p.scale[1] / 2;
+        const halfW = p.scale[2] / 2;
+        const minX = p.position[0] - halfL;
+        const maxX = p.position[0] + halfL;
+        const minZ = p.position[2] - halfW;
+        const maxZ = p.position[2] + halfW;
+
+        if (maxX > truckDims.L + 0.01 || maxZ > truckDims.W + 0.01 || minX < -0.01 || minZ < -0.01) {
+          console.error("VIOLATION: Item placed outside bounds!", p, truckDims);
+        }
+
+        // Re-place item
+        // placeItemInternal expects center position
+        const pos = new THREE.Vector3(p.position[0], p.position[1], p.position[2]);
+        const rot = new THREE.Euler(p.rotation[0], p.rotation[1], p.rotation[2]);
+        // Pass explicit size from optimizer result (p.scale is [l, h, w] which maps to [x, y, z])
+        const size = { x: p.scale[0], y: p.scale[1], z: p.scale[2] };
+        placeItemInternal(pos, rot, p.meta, p.id, size);
+      });
+
+      // Notify success
+      window.dispatchEvent(new CustomEvent("fullLoad_optimizing", {
+        detail: {
+          status: "complete",
+          stats: result.stats,
+          unplaced: result.unplaced
+        }
+      }));
+
+      // DEBUG: Draw Truck Bounds
+      if (true) { // Always on for now to debug
+        const boxGeo = new THREE.BoxGeometry(truckDims.L, truckDims.H, truckDims.W);
+        const boxEdges = new THREE.EdgesGeometry(boxGeo);
+        const boxLine = new THREE.LineSegments(boxEdges, new THREE.LineBasicMaterial({ color: 0xff0000 }));
+        // Truck origin is 0,0,0 (corner). Center is L/2, H/2, W/2.
+        boxLine.position.set(truckDims.L / 2, truckDims.H / 2, truckDims.W / 2);
+        scene.add(boxLine);
+      }
+
+    } catch (err) {
+      console.error("Optimization error:", err);
+      window.dispatchEvent(new CustomEvent("fullLoad_optimizing", { detail: { status: "error" } }));
+    }
   }
 
-  const api = {
-    scene,
-    camera,
-    renderer,
-    setBau,
-    setItems,
-    setGhostMeta,
-    placeGhostAtWorld,
-    focusCamera,
-    destroy,
-    addMercadoriaAuto,
-    clearScene,
-    captureSnapshot,
-    getPlacedItems,
-    getBauState,
-    optimizeLoad
-  };
+  function setView(view) {
+    if (!camera || !controls || !bauInnerBox) return;
+
+    // bauInnerBox.max contains {x: L, y: H, z: W}
+    const L = bauInnerBox.max.x;
+    const H = bauInnerBox.max.y;
+    const W = bauInnerBox.max.z;
+
+    const center = new THREE.Vector3(L / 2, H / 2, W / 2);
+    controls.target.copy(center);
+
+    const maxDim = Math.max(L, H, W);
+
+    switch (view) {
+      case "iso":
+        // Closer iso view
+        const isoDist = maxDim * 1.2;
+        camera.position.set(center.x + isoDist, center.y + isoDist * 0.6, center.z + isoDist);
+        break;
+      case "top":
+        // Top view needs to fit L and W. 
+        camera.position.set(center.x, center.y + maxDim * 1.0, center.z);
+        break;
+      case "side":
+        // Side view (Z axis)
+        camera.position.set(center.x, center.y, center.z + maxDim * 1.2);
+        break;
+      case "back":
+        // Back view (X axis)
+        camera.position.set(center.x + maxDim * 1.2, center.y, center.z);
+        break;
+      default:
+        break;
+    }
+    camera.lookAt(center);
+    controls.update();
+    renderer.render(scene, camera);
+  }
+
+  function captureSnapshot(view) {
+    if (view) setView(view);
+    renderer.render(scene, camera);
+    return renderer.domElement.toDataURL("image/png");
+  }
 
   function getPlacedItems() {
-    return Array.from(placed.values()).map(entry => ({
-      id: entry.data.id || entry.mesh.userData.colocId,
-      position: [entry.mesh.position.x, entry.mesh.position.y, entry.mesh.position.z],
-      rotation: [entry.mesh.rotation.x, entry.mesh.rotation.y, entry.mesh.rotation.z],
-      scale: [entry.mesh.userData._size.x, entry.mesh.userData._size.y, entry.mesh.userData._size.z],
-      tipo: entry.data.tipo || entry.data.meta?.tipo || "caixa",
-      meta: entry.data.meta || entry.data
+    return Array.from(placed.values()).map(p => ({
+      ...p.data,
+      position: [p.mesh.position.x, p.mesh.position.y, p.mesh.position.z],
+      rotation: [p.mesh.rotation.x, p.mesh.rotation.y, p.mesh.rotation.z],
+      scale: [p.mesh.userData._size.x, p.mesh.userData._size.y, p.mesh.userData._size.z],
+      meta: p.data.meta || p.data
     }));
   }
 
   function getBauState() {
     if (!bauInnerBox) return null;
     return {
-      L: cmToM(mToCm(bauInnerBox.max.x)),
-      H: cmToM(mToCm(bauInnerBox.max.y)),
-      W: cmToM(mToCm(bauInnerBox.max.z))
+      L: bauInnerBox.max.x,
+      H: bauInnerBox.max.y,
+      W: bauInnerBox.max.z
     };
   }
 
-  function createTextSprite(message) {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    const fontSize = 64;
-    ctx.font = `bold ${fontSize}px Arial`;
-    const textWidth = ctx.measureText(message).width;
-    canvas.width = textWidth + 20;
-    canvas.height = fontSize + 20;
-
-    ctx.fillStyle = "#000000";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(message, canvas.width / 2, canvas.height / 2);
-
-    const texture = new THREE.CanvasTexture(canvas);
-    const material = new THREE.SpriteMaterial({ map: texture });
-    const sprite = new THREE.Sprite(material);
-
-    const scale = 1.0;
-    sprite.scale.set(scale * (canvas.width / canvas.height), scale, 1);
-
-    return sprite;
+  function handleDrop(clientX, clientY, mercadoria) {
+    setGhostMeta(mercadoria);
   }
 
-  _engineAPI = api;
+  _engineAPI = {
+    setBau,
+    setItems,
+    setGhostMeta,
+    placeGhostAtWorld,
+    placeItemAt,
+    removeItem,
+    clearScene,
+    addMercadoriaAuto,
+    optimizeLoad,
+    undo: internalUndo,
+    redo: internalRedo,
+    captureSnapshot,
+    getPlacedItems,
+    getBauState,
+    handleDrop,
+    destroy: () => {
+      running = false;
+      cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", onResize);
+      renderer.domElement.removeEventListener("pointermove", onPointerMove);
+      renderer.domElement.removeEventListener("pointerdown", onPointerDown);
 
-  return api;
+      renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
+      renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
+      if (renderer) renderer.dispose();
+      _engineAPI = null;
+    }
+  };
+
+  return _engineAPI;
 }
 
-/* -----------------------
- Module-level wrappers
- These allow importing functions directly:
-      import { initFullLoadEngine, clearScene, setBauDimensions, setGhostObject, addMercadoriaAuto, captureSnapshot } from "./fullLoadEngine";
-------------------------*/
-export function clearScene() {
-  if (!_engineAPI) {
-    console.warn("clearScene: engine not initialized");
-    return;
-  }
-  _engineAPI.clearScene();
-}
-
-export function captureSnapshot(view) {
-  if (!_engineAPI) {
-    console.warn("captureSnapshot: engine not initialized");
-    return null;
-  }
-  return _engineAPI.captureSnapshot(view);
-}
-
-export function setBauDimensions(Lcm, Hcm, Wcm, id = null) {
-  if (!_engineAPI) {
-    console.warn("setBauDimensions: engine not initialized");
-    return;
-  }
-  if (typeof _engineAPI.setBau === "function") {
-    const toMeters = (v) => {
-      if (v == null) return 0;
-      const n = Number(v);
-      if (n > 10) return cmToM(n);
-      return n;
-    };
-    const L = toMeters(Lcm), H = toMeters(Hcm), W = toMeters(Wcm);
-    const truck = { tamanhoBau: { L: L * 100, W: W * 100, H: H * 100 } };
-    _engineAPI.setBau(truck);
-  }
-}
-
-export function setGhostObject(merc) {
-  if (!_engineAPI) {
-    console.warn("setGhostObject: engine not initialized");
-    return;
-  }
-  _engineAPI.setGhostMeta(merc);
-}
-
-/**
- * addMercadoriaAuto wrapper: returns placed result array (ids & positions)
- */
-export function addMercadoriaAuto(mercadoria, quantidade = 1) {
-  if (!_engineAPI) {
-    console.warn("addMercadoriaAuto: engine not initialized");
-    return [];
-  }
-  return _engineAPI.addMercadoriaAuto(mercadoria, quantidade);
-}
-
-export function getPlacedItems() {
-  if (!_engineAPI) return [];
-  return _engineAPI.getPlacedItems();
-}
-
-export function getBauState() {
-  if (!_engineAPI) return null;
-  return _engineAPI.getBauState();
-}
-
-export function setItems(items) {
-  if (!_engineAPI) {
-    console.warn("setItems: engine not initialized");
-    return;
-  }
-  _engineAPI.setItems(items);
-}
-
-export function optimizeLoad() {
-  if (!_engineAPI) {
-    console.warn("optimizeLoad: engine not initialized");
-    return;
-  }
-  _engineAPI.optimizeLoad();
-}
+export const setBauDimensions = (L, H, W) => _engineAPI && _engineAPI.setBau({ L, H, W });
+export const setItems = (items) => _engineAPI && _engineAPI.setItems(items);
+export const setGhostObject = (merc) => _engineAPI && _engineAPI.setGhostMeta(merc);
+export const placeGhostAt = (pos) => _engineAPI && _engineAPI.placeGhostAtWorld(pos);
+export const placeItemAt = (pos, rot, meta) => _engineAPI && _engineAPI.placeItemAt(pos, rot, meta);
+export const removeItem = (id) => _engineAPI && _engineAPI.removeItem(id);
+export const clearScene = () => _engineAPI && _engineAPI.clearScene();
+export const addMercadoriaAuto = (merc, qtd) => _engineAPI && _engineAPI.addMercadoriaAuto(merc, qtd);
+export const captureSnapshot = (view) => _engineAPI && _engineAPI.captureSnapshot ? _engineAPI.captureSnapshot(view) : null;
+export const getPlacedItems = () => _engineAPI && _engineAPI.getPlacedItems ? _engineAPI.getPlacedItems() : [];
+export const getBauState = () => _engineAPI && _engineAPI.getBauState ? _engineAPI.getBauState() : null;
+export const handleDrop = (x, y, m) => _engineAPI && _engineAPI.handleDrop ? _engineAPI.handleDrop(x, y, m) : null;
+export const optimizeLoad = () => _engineAPI && _engineAPI.optimizeLoad();
+export const undo = () => _engineAPI && _engineAPI.undo();
+export const redo = () => _engineAPI && _engineAPI.redo();

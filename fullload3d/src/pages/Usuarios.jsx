@@ -9,6 +9,9 @@ import {
   doc,
 } from "firebase/firestore";
 import { createUserWithEmailAndPassword } from "firebase/auth";
+import { initializeApp, deleteApp } from "firebase/app";
+import { getAuth as getAuthSecondary, createUserWithEmailAndPassword as createUserSecondary } from "firebase/auth";
+import { firebaseConfig } from "../services/firebaseConfig";
 import AdminLayout from "../layouts/AdminLayout";
 import { Users, Plus, Edit, Save, X, Shield, Mail, Building, Loader2, CheckCircle, User } from "lucide-react";
 
@@ -115,12 +118,19 @@ export default function Usuarios() {
           return;
         }
 
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
+        // Create secondary app to avoid logging out admin
+        const secondaryApp = initializeApp(firebaseConfig, "Secondary");
+        const secondaryAuth = getAuthSecondary(secondaryApp);
+
+        const userCredential = await createUserSecondary(
+          secondaryAuth,
           form.email,
           form.senha
         );
         const user = userCredential.user;
+
+        // Cleanup
+        await deleteApp(secondaryApp);
 
         await setDoc(doc(db, "usuarios", user.uid), {
           uid: user.uid,
@@ -139,7 +149,7 @@ export default function Usuarios() {
       carregarUsuarios();
     } catch (err) {
       console.error("Erro ao salvar usuário:", err);
-      alert("Erro ao salvar usuário. Veja o console.");
+      alert(`Erro ao salvar usuário: ${err.message}`);
     } finally {
       setLoading(false);
     }

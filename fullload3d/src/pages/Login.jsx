@@ -92,8 +92,8 @@ export default function Login() {
 
         <div className="relative z-10 max-w-lg">
           <div className="mb-12">
-            <div className="w-16 h-16 bg-orange-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-orange-500/30">
-              <img src="/logo.png" className="w-10 h-10 invert brightness-0" alt="Logo" />
+            <div className="w-32 h-32 bg-orange-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-orange-500/30">
+              <img src="/logo.png" className="w-20 h-20 invert brightness-0" alt="Logo" />
             </div>
             <h1 className="text-6xl font-bold mb-6 tracking-tight leading-tight">
               Logística <br />
