@@ -137,7 +137,7 @@ export default function Mercadoria() {
   const validateForm = () => {
     const newErrors = {};
     if (!form.nome.trim()) newErrors.nome = "Nome é obrigatório";
-    if (Number(form.quantidade) <= 0 || !Number.isInteger(Number(form.quantidade))) newErrors.quantidade = "Quantidade deve ser um inteiro maior que 0";
+
     if (Number(form.peso) <= 0) newErrors.peso = "Peso deve ser maior que 0";
     if (Number(form.comprimento) <= 0) newErrors.comprimento = "Comprimento deve ser maior que 0";
     if (Number(form.largura) <= 0) newErrors.largura = "Largura deve ser maior que 0";
@@ -162,7 +162,7 @@ export default function Mercadoria() {
       setLoading(true);
       const dadosParaSalvar = {
         ...form,
-        quantidade: Number(form.quantidade),
+        quantidade: 1,
         peso: Number(form.peso),
         comprimento: Number(form.comprimento),
         largura: Number(form.largura),
@@ -361,6 +361,7 @@ export default function Mercadoria() {
               placeholder="Buscar por nome, código ou tipo..."
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
+              onKeyDown={(e) => e.stopPropagation()}
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all"
             />
           </div>
@@ -542,17 +543,7 @@ export default function Mercadoria() {
                         onChange={(e) => handleChange("codigo", e.target.value)}
                       />
                     </div>
-                    <div>
-                      <label className="block text-sm font-semibold text-slate-700 mb-1">Quantidade*</label>
-                      <input
-                        type="number"
-                        className={`w-full px-4 py-3 rounded-xl border ${errors.quantidade ? "border-red-500" : "border-slate-200"} focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900`}
-                        placeholder="1"
-                        value={form.quantidade}
-                        onChange={(e) => handleChange("quantidade", e.target.value)}
-                      />
-                      {errors.quantidade && <p className="text-red-500 text-xs mt-1">{errors.quantidade}</p>}
-                    </div>
+
                   </div>
 
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">

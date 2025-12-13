@@ -215,7 +215,7 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
               <SectionHeader icon={<Truck className="w-4 h-4" />} title="Configuração do Veículo" />
 
               <div className="bg-slate-900 p-5 rounded-2xl border border-slate-800 shadow-sm">
-                <label className="block text-xs font-bold text-slate-400 mb-3 uppercase tracking-wide">Modelo do Caminhão</label>
+                <label className="block text-xs font-bold text-slate-400 mb-3 uppercase tracking-wide">Modelo do Veículo</label>
                 <select
                   className="w-full p-3.5 bg-[#020617] border border-slate-700 rounded-xl text-sm text-white focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 outline-none transition-all appearance-none"
                   value={bauSelecionado?.id || ""}

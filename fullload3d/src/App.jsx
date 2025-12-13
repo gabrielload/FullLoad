@@ -7,6 +7,7 @@ import { auth } from "./services/firebaseConfig";
 import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import AdminPanel from "./pages/AdminPanel";
+import SystemSettings from "./pages/SystemSettings";
 import Usuarios from "./pages/Usuarios";
 import Empresas from "./pages/Empresas";
 import Carregamento from "./pages/Carregamento";
@@ -15,6 +16,7 @@ import UserClient from "./pages/UserCliente";
 import FullLoad from "./pages/FullLoad3d";
 import Caminhao from "./pages/Caminhoes";
 import MeuPlano from "./pages/MeuPlano";
+import Relatorios from "./pages/Relatorios";
 import Perfil from "./pages/Perfil";
 import Configuracoes from "./pages/Configuracoes";
 import Ajuda from "./pages/Ajuda";
@@ -76,6 +78,14 @@ export default function App() {
         element={
           <ProtectedRoute allowed={["master"]}>
             <AdminPanel />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/admin/settings"
+        element={
+          <ProtectedRoute allowed={["master"]}>
+            <SystemSettings />
           </ProtectedRoute>
         }
       />
@@ -146,6 +156,14 @@ export default function App() {
         element={
           <ProtectedRoute allowed={["user"]}>
             <MeuPlano />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/relatorios"
+        element={
+          <ProtectedRoute allowed={["user"]}>
+            <Relatorios />
           </ProtectedRoute>
         }
       />

@@ -39,7 +39,7 @@ import {
 
 export default function Usuarios() {
   const empresaId = localStorage.getItem("empresaId");
-  const userRole = localStorage.getItem("role");
+  const userCargo = localStorage.getItem("userCargo");
   const maxUsuarios = 5;
 
   const [usuarios, setUsuarios] = useState([]);
@@ -272,7 +272,7 @@ export default function Usuarios() {
           </div>
 
           <div className="flex gap-3">
-            {userRole !== "Operador" && (
+            {userCargo === "Administrador" && (
               <>
                 <button
                   onClick={() => setOpenModal(true)}
@@ -305,91 +305,101 @@ export default function Usuarios() {
         )}
 
         {/* Table */}
-        <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
-          <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
-            <h2 className="text-2xl font-bold text-slate-900">Lista de Usuários</h2>
-            <p className="text-sm text-slate-500 mt-1">{usuarios.length} de {maxUsuarios} usuários</p>
+        {userCargo !== "Administrador" ? (
+          <div className="bg-white rounded-2xl shadow-lg p-10 text-center border border-slate-100">
+            <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Shield className="w-10 h-10 text-red-500" />
+            </div>
+            <h2 className="text-xl font-bold text-slate-900 mb-2">Acesso Restrito</h2>
+            <p className="text-slate-500 max-w-md mx-auto">
+              Apenas administradores podem visualizar e gerenciar usuários. Entre em contato com seu gestor se precisar de acesso.
+            </p>
           </div>
+        ) : (
+          <div className="bg-white rounded-2xl shadow-lg border border-slate-100 overflow-hidden">
+            <div className="px-8 py-6 border-b border-slate-100 bg-gradient-to-r from-slate-50 to-white">
+              <h2 className="text-2xl font-bold text-slate-900">Lista de Usuários</h2>
+              <p className="text-sm text-slate-500 mt-1">{usuarios.length} de {maxUsuarios} usuários</p>
+            </div>
 
-          <div className="overflow-x-auto">
-            {loading ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
-              </div>
-            ) : usuarios.length === 0 ? (
-              <div className="text-center py-16">
-                <User className="w-16 h-16 text-slate-300 mx-auto mb-4" />
-                <p className="text-slate-500 text-lg font-medium">Nenhum usuário cadastrado</p>
-                <p className="text-slate-400 text-sm mt-2">Adicione seu primeiro usuário</p>
-              </div>
-            ) : (
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-slate-50 border-b border-slate-200">
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Email</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Cargo</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Setor</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Criado em</th>
-                    <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Ações</th>
-                  </tr>
-                </thead>
+            <div className="overflow-x-auto">
+              {loading ? (
+                <div className="flex items-center justify-center py-16">
+                  <Loader2 className="w-12 h-12 text-orange-500 animate-spin" />
+                </div>
+              ) : usuarios.length === 0 ? (
+                <div className="text-center py-16">
+                  <User className="w-16 h-16 text-slate-300 mx-auto mb-4" />
+                  <p className="text-slate-500 text-lg font-medium">Nenhum usuário cadastrado</p>
+                  <p className="text-slate-400 text-sm mt-2">Adicione seu primeiro usuário</p>
+                </div>
+              ) : (
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Nome</th>
+                      <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Email</th>
+                      <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Cargo</th>
+                      <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Setor</th>
+                      <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Criado em</th>
+                      <th className="text-left py-4 px-8 text-xs font-bold text-slate-600 uppercase tracking-wider">Ações</th>
+                    </tr>
+                  </thead>
 
-                <tbody className="divide-y divide-slate-100">
-                  {usuarios.map((u, idx) => (
-                    <tr key={u.id} className="hover:bg-slate-50 transition-colors">
-                      <td className="py-4 px-8">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
-                            {u.nome[0].toUpperCase()}
+                  <tbody className="divide-y divide-slate-100">
+                    {usuarios.map((u, idx) => (
+                      <tr key={u.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="py-4 px-8">
+                          <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-orange-500 flex items-center justify-center text-white font-bold shadow-md">
+                              {u.nome[0].toUpperCase()}
+                            </div>
+                            <span className="font-medium text-slate-900">{u.nome}</span>
                           </div>
-                          <span className="font-medium text-slate-900">{u.nome}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-8">
-                        <div className="flex items-center gap-2 text-slate-600">
-                          <Mail className="w-4 h-4 text-slate-400" />
-                          <span className="text-sm">{u.email}</span>
-                        </div>
-                      </td>
-                      <td className="py-4 px-8">
-                        <CargoBadge cargo={u.cargo} />
-                      </td>
-                      <td className="py-4 px-8 text-slate-600 text-sm">
-                        {u.setor || "-"}
-                      </td>
-                      <td className="py-4 px-8 text-slate-600 text-sm">
-                        {u.criadoEm?.toDate
-                          ? u.criadoEm.toDate().toLocaleDateString()
-                          : ""}
-                      </td>
+                        </td>
+                        <td className="py-4 px-8">
+                          <div className="flex items-center gap-2 text-slate-600">
+                            <Mail className="w-4 h-4 text-slate-400" />
+                            <span className="text-sm">{u.email}</span>
+                          </div>
+                        </td>
+                        <td className="py-4 px-8">
+                          <CargoBadge cargo={u.cargo} />
+                        </td>
+                        <td className="py-4 px-8 text-slate-600 text-sm">
+                          {u.setor || "-"}
+                        </td>
+                        <td className="py-4 px-8 text-slate-600 text-sm">
+                          {u.criadoEm?.toDate
+                            ? u.criadoEm.toDate().toLocaleDateString()
+                            : ""}
+                        </td>
 
-                      <td className="py-4 px-8">
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => resetarSenha(u.email)}
-                            className="px-3 py-1.5 rounded-lg border-2 border-blue-200 hover:border-blue-500 hover:bg-blue-50 text-blue-600 font-semibold text-sm transition-all"
-                          >
-                            Resetar senha
-                          </button>
+                        <td className="py-4 px-8">
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => resetarSenha(u.email)}
+                              className="px-3 py-1.5 rounded-lg border-2 border-blue-200 hover:border-blue-500 hover:bg-blue-50 text-blue-600 font-semibold text-sm transition-all"
+                            >
+                              Resetar senha
+                            </button>
 
-                          {userRole === 'Administrador' && (
                             <button
                               onClick={() => excluirUsuario(u.id)}
                               className="p-2 rounded-lg bg-gradient-to-r from-red-600 to-red-500 hover:from-red-700 hover:to-red-600 text-white shadow-md transition-all"
                             >
                               <Trash2 size={16} />
                             </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Modal Criar Usuário */}
         {openModal && (

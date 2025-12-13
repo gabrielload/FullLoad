@@ -82,7 +82,15 @@ export default function Dashboard() {
           const filterDate = new Date(filterValue);
 
           const filterFn = (item) => {
-            const date = item.dataEntrada ? item.dataEntrada.toDate() : new Date(item.dataCriacao);
+            let date;
+            if (item.dataEntrada && typeof item.dataEntrada.toDate === 'function') {
+              date = item.dataEntrada.toDate();
+            } else if (item.dataCriacao && typeof item.dataCriacao.toDate === 'function') {
+              date = item.dataCriacao.toDate();
+            } else {
+              date = new Date(item.dataEntrada || item.dataCriacao || Date.now());
+            }
+
             if (filterType === 'day') {
               return date.toDateString() === filterDate.toDateString();
             } else if (filterType === 'month') {
@@ -128,12 +136,17 @@ export default function Dashboard() {
 
         const realMonthlyData = last6Months.map(m => {
           const cargasCount = dadosCarreg.filter(c => {
-            const d = c.dataEntrada ? c.dataEntrada.toDate() : new Date();
+            let d;
+            if (c.dataEntrada && typeof c.dataEntrada.toDate === 'function') {
+              d = c.dataEntrada.toDate();
+            } else {
+              d = new Date(c.dataEntrada || Date.now());
+            }
             return d.getMonth() === m.monthIndex && d.getFullYear() === m.year;
           }).length;
 
           const planosCount = dadosPlanos.filter(p => {
-            const d = new Date(p.dataCriacao);
+            const d = new Date(p.dataCriacao && typeof p.dataCriacao.toDate === 'function' ? p.dataCriacao.toDate() : p.dataCriacao || Date.now());
             return d.getMonth() === m.monthIndex && d.getFullYear() === m.year;
           }).length;
 
@@ -190,7 +203,8 @@ export default function Dashboard() {
       ...planos.map(p => ["Plano 3D", p.nome, p.documento, new Date(p.dataCriacao).toLocaleDateString(), p.items?.length || 0])
     ].map(e => e.join(";")).join("\r\n"); // Changed to semicolon and CRLF
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    // Add UTF-8 BOM for Excel compatibility
+    const blob = new Blob(["\uFEFF" + csvContent], { type: "text/csv;charset=utf-8;" });
     const link = document.createElement("a");
     const url = URL.createObjectURL(blob);
     link.setAttribute("href", url);
@@ -213,27 +227,37 @@ export default function Dashboard() {
             <p className="text-slate-500 mt-1">Bem-vindo ao seu painel de controle logístico.</p>
           </div>
 
-          <div className="flex items-center gap-3 bg-white p-1.5 rounded-xl shadow-sm border border-slate-100">
-            <span className="text-sm font-bold text-slate-600 px-2">Alterar datas:</span>
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="bg-transparent border-none outline-none text-sm font-medium text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={exportReport}
+              className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold transition-colors shadow-sm shadow-emerald-500/20"
             >
-              <option value="all">Todo o Período</option>
-              <option value="day">Hoje</option>
-              <option value="month">Este Mês</option>
-              <option value="year">Este Ano</option>
-            </select>
+              <FileDown size={18} />
+              Exportar Relatório
+            </button>
 
-            {filterType !== 'all' && (
-              <input
-                type={filterType === 'day' ? 'date' : filterType === 'month' ? 'month' : 'number'}
-                value={filterValue}
-                onChange={(e) => setFilterValue(e.target.value)}
-                className="bg-slate-50 border-none outline-none text-sm font-medium text-slate-600 px-3 py-2 rounded-lg"
-              />
-            )}
+            <div className="flex items-center gap-3 bg-white p-1.5 rounded-xl shadow-sm border border-slate-100">
+              <span className="text-sm font-bold text-slate-600 px-2">Alterar datas:</span>
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="bg-transparent border-none outline-none text-sm font-medium text-slate-600 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+              >
+                <option value="all">Todo o Período</option>
+                <option value="day">Hoje</option>
+                <option value="month">Este Mês</option>
+                <option value="year">Este Ano</option>
+              </select>
+
+              {filterType !== 'all' && (
+                <input
+                  type={filterType === 'day' ? 'date' : filterType === 'month' ? 'month' : 'number'}
+                  value={filterValue}
+                  onChange={(e) => setFilterValue(e.target.value)}
+                  className="bg-slate-50 border-none outline-none text-sm font-medium text-slate-600 px-3 py-2 rounded-lg"
+                />
+              )}
+            </div>
           </div>
         </div>
 
@@ -357,7 +381,7 @@ export default function Dashboard() {
                       <div>
                         <p className="font-bold text-slate-800">{p.nome || "-"}</p>
                         <p className="text-xs text-slate-500">
-                          {p.itens?.length || 0} itens • {new Date(p.dataCriacao?.toDate ? p.dataCriacao.toDate() : p.dataCriacao).toLocaleDateString()}
+                          {p.items?.length || 0} itens • {new Date(p.dataCriacao?.toDate ? p.dataCriacao.toDate() : p.dataCriacao).toLocaleDateString()}
                         </p>
                       </div>
                     </div>

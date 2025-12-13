@@ -116,7 +116,7 @@ export default function Caminhao() {
       let fotoUrl = null;
       if (foto) fotoUrl = await uploadFoto(foto);
 
-      const caminhãoData = {
+      const veículoData = {
         nome,
         modelo: modelo || null,
         placa: placa || null,
@@ -131,12 +131,12 @@ export default function Caminhao() {
 
       if (editId) {
         const refDoc = doc(db, "empresas", empresaId, "caminhoes", editId);
-        await updateDoc(refDoc, caminhãoData);
+        await updateDoc(refDoc, veículoData);
         setEditId(null);
       } else {
         await addDoc(
           collection(db, "empresas", empresaId, "caminhoes"),
-          caminhãoData
+          veículoData
         );
       }
 
@@ -144,10 +144,10 @@ export default function Caminhao() {
       setIsModalOpen(false);
       carregar();
 
-      setMensagemSucesso("Caminhão salvo com sucesso!");
+      setMensagemSucesso("Veículo salvo com sucesso!");
       setTimeout(() => setMensagemSucesso(""), 3000);
     } catch (err) {
-      console.error("Erro ao salvar caminhão:", err);
+      console.error("Erro ao salvar veículo:", err);
     } finally {
       setLoading(false);
     }
@@ -181,7 +181,7 @@ export default function Caminhao() {
   };
 
   const handleExcluir = async (id) => {
-    if (!confirm("Tem certeza que deseja excluir este caminhão?")) return;
+    if (!confirm("Tem certeza que deseja excluir este veículo?")) return;
 
     setLoading(true);
     try {
@@ -211,7 +211,7 @@ export default function Caminhao() {
           const colRef = collection(db, "empresas", empresaId, "caminhoes");
           for (const row of results.data) {
             const dados = {
-              nome: row.nome || "Caminhão Importado",
+              nome: row.nome || "Veículo Importado",
               modelo: row.modelo || "",
               placa: row.placa || "",
               tamanhoBau: {
@@ -317,7 +317,7 @@ export default function Caminhao() {
               className="px-4 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-500/20 flex items-center gap-2"
             >
               <Plus size={18} />
-              Novo Caminhão
+              Novo Veículo
             </button>
           </div>
         </div>
@@ -519,9 +519,9 @@ export default function Caminhao() {
             <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-6">
               <Truck className="w-10 h-10 text-slate-300" />
             </div>
-            <h3 className="text-xl font-bold text-slate-900 mb-2">Nenhum caminhão encontrado</h3>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Nenhum veículo encontrado</h3>
             <p className="text-slate-500 max-w-md mx-auto mb-8">
-              Você ainda não tem veículos cadastrados. Adicione seu primeiro caminhão para começar a planejar cargas.
+              Você ainda não tem veículos cadastrados. Adicione seu primeiro veículo para começar a planejar cargas.
             </p>
             <button
               onClick={() => { resetForm(); setIsModalOpen(true); }}
@@ -543,7 +543,7 @@ export default function Caminhao() {
               <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
                 <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                   {editId ? <Pencil className="w-5 h-5 text-orange-500" /> : <Plus className="w-5 h-5 text-orange-500" />}
-                  {editId ? "Editar Caminhão" : "Novo Caminhão"}
+                  {editId ? "Editar Veículo" : "Novo Veículo"}
                 </h2>
                 <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 transition-colors">
                   <X size={20} />

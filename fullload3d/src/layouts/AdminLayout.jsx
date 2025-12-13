@@ -44,6 +44,9 @@ export default function AdminLayout({ children }) {
             <Link to="/cargas" className="text-gray-700 hover:text-orange-600 font-medium">
               Cargas
             </Link>
+            <Link to="/admin/settings" className="text-gray-700 hover:text-orange-600 font-medium flex items-center gap-1">
+              Configurações
+            </Link>
           </nav>
 
           {/* USUÁRIO E LOGOUT */}

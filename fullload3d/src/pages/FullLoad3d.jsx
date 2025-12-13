@@ -1,9 +1,17 @@
 // src/pages/FullLoad3d.jsx
 import React, { useEffect, useRef, useState } from "react";
 import Menu3D from "../fullload3d/menu3D";
-import { jsPDF } from "jspdf";
-import autoTable from "jspdf-autotable";
-import { Camera, FileDown, RefreshCw, Info, X, ArrowLeft, Save, List, AlertCircle, Box, ChevronUp, ChevronDown, Mouse, Keyboard, Loader2, Trash2, RotateCw, Move, Scale, Undo2, Redo2 } from "lucide-react";
+import { generatePDFBlob } from "../utils/pdfGenerator";
+import { Camera, RefreshCw, Info, X, ArrowLeft, Save, List, AlertCircle, Box, Loader2, Trash2, RotateCw, Scale } from "lucide-react";
+import ActionButton from "../components/fullload3d/hud/ActionButton";
+import SaveModal from "../components/fullload3d/modals/SaveModal";
+import ListModal from "../components/fullload3d/modals/ListModal";
+import ShortcutsModal from "../components/fullload3d/modals/ShortcutsModal";
+import ExportModal from "../components/fullload3d/modals/ExportModal";
+import ControlsHUD from "../components/fullload3d/hud/ControlsHUD";
+import StatsHUD from "../components/fullload3d/hud/StatsHUD";
+import Toolbar from "../components/fullload3d/hud/Toolbar";
+import StatusIndicator from "../components/fullload3d/hud/StatusIndicator";
 import { useNavigate } from "react-router-dom";
 import { db, storage } from "../services/firebaseConfig";
 import { collection, addDoc, doc, getDoc } from "firebase/firestore";
@@ -43,6 +51,9 @@ export default function FullLoad3D() {
   const [selectedItem, setSelectedItem] = useState(null);
   const [historyState, setHistoryState] = useState({ canUndo: false, canRedo: false });
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [isLoadingPlan, setIsLoadingPlan] = useState(!!new URLSearchParams(window.location.search).get("planId"));
+  const [isEngineReady, setIsEngineReady] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("idle"); // idle, saving, saved, error
 
   // Custom Modals State
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null });
@@ -57,25 +68,18 @@ export default function FullLoad3D() {
   }, [showControlsHUD]);
 
   useEffect(() => {
-    if (planId) {
-      // Delay slightly to ensure engine is ready? 
-      // Actually initFullLoadEngine is in another useEffect.
-      // We might need to wait for engine init.
-      // But loadPlan uses Firestore data then calls setBauDimensions and setItems.
-      // setBauDimensions and setItems use the engine state or dispatch events?
-      // In fullLoadEngine.js (which I can't see fully but inferred), they probably manipulate the scene.
-      // If the scene is not ready, it might fail.
-      // But init happens on mount.
-      // Let's try calling it.
+    if (planId && isEngineReady) {
+      console.log("🚀 Loading plan:", planId);
       loadPlan(planId);
     }
-  }, [planId]);
+  }, [planId, isEngineReady]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
 
     console.log("🟧 Inicializando FullLoad Engine 3D...");
     initFullLoadEngine(canvasRef.current);
+    setIsEngineReady(true);
 
     // ============================
     //  HANDLERS: nomes fixos p/ remover certo
@@ -89,6 +93,9 @@ export default function FullLoad3D() {
       console.log("📦 Configurando baú:", e.detail);
       const { L, H, W } = e.detail;
       setBauDimensions(L, H, W);
+      // Immediately save to localStorage
+      localStorage.setItem("fullload_autosave_bau", JSON.stringify({ L, H, W }));
+      console.log("💾 Baú salvo no autosave");
     };
 
     const handleSetGhost = (e) => {
@@ -176,6 +183,78 @@ export default function FullLoad3D() {
     };
   }, []);
 
+  // ============================
+  //   AUTO-SAVE & AUTO-RESTORE
+  // ============================
+  // Auto-restore from localStorage on mount
+  useEffect(() => {
+    if (!isEngineReady) return;
+
+    try {
+      const savedBau = localStorage.getItem("fullload_autosave_bau");
+      const savedItems = localStorage.getItem("fullload_autosave_items");
+
+      if (savedBau) {
+        const bau = JSON.parse(savedBau);
+        console.log("🔄 Restaurando baú do autosave:", bau);
+        setBauDimensions(bau.L, bau.H, bau.W);
+      }
+
+      if (savedItems) {
+        const items = JSON.parse(savedItems);
+        console.log("🔄 Restaurando itens do autosave:", items.length, "itens");
+        setTimeout(() => {
+          setItems(items);
+        }, 500); // Small delay to ensure bau is loaded first
+      }
+    } catch (err) {
+      console.error("Erro ao restaurar autosave:", err);
+    }
+  }, [isEngineReady]);
+
+  // Auto-save on state changes
+  useEffect(() => {
+    if (!isEngineReady) return;
+
+    const handleAutoSave = () => {
+      try {
+        const items = getPlacedItems();
+        const bau = getBauState();
+
+        if (bau) {
+          localStorage.setItem("fullload_autosave_bau", JSON.stringify(bau));
+        }
+
+        if (items && items.length > 0) {
+          localStorage.setItem("fullload_autosave_items", JSON.stringify(items));
+        } else {
+          localStorage.removeItem("fullload_autosave_items");
+        }
+
+        console.log("💾 Autosave:", items.length, "itens");
+        setSaveStatus("saved");
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      } catch (err) {
+        console.error("Erro ao salvar autosave:", err);
+        setSaveStatus("error");
+      }
+    };
+
+    // Listen to updates and save
+    const handleUpdateAndSave = () => {
+      setSaveStatus("saving");
+      // Debounce slightly to show "Saving..."
+      setTimeout(handleAutoSave, 500);
+    };
+
+    window.addEventListener("fullLoad_updated", handleUpdateAndSave);
+
+    return () => {
+      window.removeEventListener("fullLoad_updated", handleUpdateAndSave);
+    };
+  }, [isEngineReady]);
+
+
   // Keyboard Shortcuts for Undo/Redo
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -206,6 +285,9 @@ export default function FullLoad3D() {
       message: "Deseja limpar todo o plano de carga? Esta ação não pode ser desfeita.",
       onConfirm: () => {
         clearScene();
+        // Clear autosave
+        localStorage.removeItem("fullload_autosave_bau");
+        localStorage.removeItem("fullload_autosave_items");
         setConfirmModal({ show: false, title: "", message: "", onConfirm: null });
         setSuccessToast("Plano limpo com sucesso!");
         setTimeout(() => setSuccessToast(null), 3000);
@@ -229,142 +311,7 @@ export default function FullLoad3D() {
     setShowSaveModal(true);
   };
 
-  const generatePDFBlob = async (docInfo = {}) => {
-    const doc = new jsPDF({ orientation: "landscape", format: "a4" });
-    const pageWidth = doc.internal.pageSize.getWidth();
-    const pageHeight = doc.internal.pageSize.getHeight();
-    const logoUrl = "/logo.png"; // Ensure this is accessible
 
-    // Helper to load image
-    const loadImage = (src) => new Promise((resolve) => {
-      const img = new Image();
-      img.src = src;
-      img.onload = () => resolve(img);
-      img.onerror = () => resolve(null);
-    });
-
-    const logoImg = await loadImage(logoUrl);
-
-    // Helper to add header
-    const addHeader = (title) => {
-      // Logo
-      if (logoImg) {
-        doc.addImage(logoImg, "PNG", 10, 5, 15, 15);
-      }
-
-      // Title
-      doc.setFontSize(18);
-      doc.setTextColor(30, 41, 59); // Slate-800
-      doc.text("FullLoad 3D", 30, 12);
-
-      doc.setFontSize(10);
-      doc.setTextColor(100, 116, 139); // Slate-500
-      doc.text("Relatório de Carga", 30, 17);
-
-      // Doc Info (Right aligned)
-      doc.setFontSize(10);
-      doc.setTextColor(71, 85, 105); // Slate-600
-      const dateStr = new Date().toLocaleString();
-      doc.text(dateStr, pageWidth - 10, 10, { align: "right" });
-
-      if (docInfo.documento) {
-        doc.text(`Doc: ${docInfo.documento}`, pageWidth - 10, 15, { align: "right" });
-      }
-      if (docInfo.tipoCarga) {
-        doc.text(`Tipo: ${docInfo.tipoCarga}`, pageWidth - 10, 20, { align: "right" });
-      }
-
-      doc.setDrawColor(226, 232, 240); // Slate-200
-      doc.line(10, 25, pageWidth - 10, 25);
-
-      // Page Title
-      doc.setFontSize(14);
-      doc.setTextColor(15, 23, 42); // Slate-900
-      doc.text(title, 10, 35);
-    };
-
-    // Capture Views
-    const imgIso = captureSnapshot("iso");
-    const imgTop = captureSnapshot("top");
-    const imgSide = captureSnapshot("side");
-    const imgBack = captureSnapshot("back");
-
-    // Page 1: Isometric (Maximized)
-    if (imgIso) {
-      addHeader("Vista Isométrica");
-      // Maximize image area: Start Y=40, Margin=10
-      // Available Height = PageHeight - 40 - 10 = 297 - 50 = 247 (approx)
-      doc.addImage(imgIso, "PNG", 10, 40, pageWidth - 20, pageHeight - 50);
-    }
-
-    // Page 2: Top & Side (Combined if possible, or separate)
-    // Let's keep separate for clarity but maximize them
-    if (imgTop) {
-      doc.addPage();
-      addHeader("Vista Superior");
-      doc.addImage(imgTop, "PNG", 10, 40, pageWidth - 20, pageHeight - 50);
-    }
-
-    if (imgSide) {
-      doc.addPage();
-      addHeader("Vista Lateral");
-      doc.addImage(imgSide, "PNG", 10, 40, pageWidth - 20, pageHeight - 50);
-    }
-
-    if (imgBack) {
-      doc.addPage();
-      addHeader("Vista Traseira");
-      doc.addImage(imgBack, "PNG", 10, 40, pageWidth - 20, pageHeight - 50);
-    }
-
-    // Page 5: Item List
-    doc.addPage();
-    addHeader("Lista de Itens");
-
-    const items = getPlacedItems();
-    const tableColumn = ["Item", "Dimensões (cm)", "Peso (kg)", "Qtd", "Total (kg)"];
-    const itemsMap = {};
-
-    items.forEach(item => {
-      const name = item.meta?.nome || "Item";
-      const dims = `${(item.scale[0] * 100).toFixed(0)}x${(item.scale[1] * 100).toFixed(0)}x${(item.scale[2] * 100).toFixed(0)}`;
-      const weight = Number(item.meta?.peso || 0);
-      const key = `${name}-${dims}-${weight}`;
-
-      if (!itemsMap[key]) itemsMap[key] = { name, dims, weight, count: 0 };
-      itemsMap[key].count++;
-    });
-
-    const tableRows = Object.values(itemsMap).map(i => [
-      i.name,
-      i.dims,
-      i.weight.toFixed(1),
-      i.count,
-      (i.weight * i.count).toFixed(1)
-    ]);
-
-    // Add Total Row
-    const totalWeight = items.reduce((acc, item) => acc + Number(item.meta?.peso || 0), 0);
-    const totalCount = items.length;
-
-    tableRows.push([
-      { content: 'TOTAL', colSpan: 3, styles: { fontStyle: 'bold', halign: 'right' } },
-      { content: totalCount, styles: { fontStyle: 'bold' } },
-      { content: totalWeight.toFixed(1), styles: { fontStyle: 'bold' } }
-    ]);
-
-    autoTable(doc, {
-      startY: 40,
-      head: [tableColumn],
-      body: tableRows,
-      theme: 'grid',
-      headStyles: { fillColor: [234, 88, 12], textColor: 255, fontStyle: 'bold' },
-      styles: { fontSize: 10, cellPadding: 3 },
-      alternateRowStyles: { fillColor: [248, 250, 252] },
-    });
-
-    return doc.output("blob");
-  };
 
   const handleConfirmSave = async () => {
     // Processo is now optional
@@ -450,14 +397,17 @@ export default function FullLoad3D() {
         if (data.bau) {
           setBauDimensions(data.bau.L * 100, data.bau.H * 100, data.bau.W * 100);
         }
-        if (data.items && Array.isArray(data.items)) {
-          setTimeout(() => {
-            try {
-              setItems(data.items);
-            } catch (e) {
-              console.error("Erro ao definir itens:", e);
-            }
-          }, 500);
+        if (data.items && isEngineReady) { // Only load items when engine is ready
+          console.log("📍 Engine Ready, loading items into scene...");
+          try {
+            setItems(data.items);
+            setCurrentItems(data.items);
+            setIsLoadingPlan(false); // Done loading
+          } catch (e) {
+            console.error("Erro ao definir itens:", e);
+          }
+        } else if (!data.items) {
+          setIsLoadingPlan(false); // Done (no items)
         }
         console.log("Plano carregado:", data.nome);
       } else {
@@ -470,7 +420,7 @@ export default function FullLoad3D() {
   };
 
   const handleScreenshot = () => {
-    const dataURL = captureSnapshot("iso");
+    const dataURL = captureSnapshot("current");
     if (dataURL) {
       const link = document.createElement("a");
       link.download = `screenshot_${Date.now()}.png`;
@@ -630,28 +580,34 @@ export default function FullLoad3D() {
           </div>
 
           {/* Stats HUD */}
-          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-            <div className="flex gap-4 bg-slate-900/90 backdrop-blur-md text-white px-6 py-3 rounded-full shadow-2xl border border-white/10">
-              <div className="flex items-center gap-2">
-                <Box size={16} className="text-orange-400" />
-                <span className="font-bold">{stats.count}</span>
-                <span className="text-xs text-slate-400 uppercase tracking-wider">Itens</span>
-              </div>
-              <div className="w-px bg-white/20"></div>
-              <div className="flex items-center gap-2">
-                <Scale size={16} className="text-blue-400" />
-                <span className="font-bold">{stats.weight.toFixed(1)}</span>
-                <span className="text-xs text-slate-400 uppercase tracking-wider">kg</span>
-              </div>
-            </div>
-          </div>
+          <StatsHUD stats={stats} />
 
-          {/* Loading Overlay */}
+          {/* Auto-Save Indicator */}
+          <StatusIndicator status={saveStatus} />
+
+          {/* Initial Loading Screen */}
+          {isLoadingPlan && (
+            <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center bg-slate-950 text-white animate-out fade-out duration-500 fill-mode-forwards">
+              <div className="relative mb-6">
+                <div className="w-20 h-20 rounded-full border-4 border-slate-800 border-t-orange-500 animate-spin"></div>
+                <Box className="absolute inset-0 m-auto w-8 h-8 text-slate-600" />
+              </div>
+              <h2 className="text-xl font-bold tracking-tight">Carregando Plano...</h2>
+              <p className="text-slate-500 text-sm mt-2">Preparando o ambiente 3D</p>
+            </div>
+          )}
+
+          {/* Loading Overlay (Optimizing) */}
           {isOptimizing && (
-            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-              <Loader2 className="w-12 h-12 text-white animate-spin mb-4" />
-              <h2 className="text-2xl font-bold text-white">Otimizando Carga...</h2>
-              <p className="text-slate-300">Aplicando Regra de Ouro</p>
+            <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-300">
+              <div className="relative">
+                <Loader2 className="w-16 h-16 text-orange-500 animate-spin" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Box className="w-6 h-6 text-white animate-pulse" />
+                </div>
+              </div>
+              <h2 className="mt-6 text-2xl font-bold text-white tracking-tight">Otimizando Carga...</h2>
+              <p className="text-slate-400 mt-2 font-medium">Aplicando Regra de Ouro (Algoritmo Genético)</p>
             </div>
           )}
 
@@ -665,236 +621,53 @@ export default function FullLoad3D() {
             />
           </div>
 
-          {/* Bottom Toolbar (Figma Style) */}
-          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-40 flex items-center gap-2 bg-slate-900/90 backdrop-blur-xl p-2 rounded-2xl shadow-2xl border border-slate-700 ring-1 ring-black/50 animate-in slide-in-from-bottom-10 duration-500">
-
-            {/* Undo/Redo Group */}
-            <div className="flex gap-1 mr-2">
-              <button
-                onClick={undo}
-                disabled={!historyState.canUndo}
-                className={`p-3 rounded-xl transition-all ${historyState.canUndo ? 'text-slate-200 hover:bg-slate-800 hover:text-white hover:scale-110' : 'text-slate-600 cursor-not-allowed'}`}
-                title="Desfazer (Ctrl+Z)"
-              >
-                <Undo2 className="w-5 h-5" />
-              </button>
-              <button
-                onClick={redo}
-                disabled={!historyState.canRedo}
-                className={`p-3 rounded-xl transition-all ${historyState.canRedo ? 'text-slate-200 hover:bg-slate-800 hover:text-white hover:scale-110' : 'text-slate-600 cursor-not-allowed'}`}
-                title="Refazer (Ctrl+Y)"
-              >
-                <Redo2 className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="w-px h-8 bg-slate-700 mx-1"></div>
-
-            {/* Main Actions */}
-            <ActionButton
-              icon={<Box className="w-5 h-5" />}
-              label="Otimizar"
-              onClick={optimizeLoad}
-              color="text-orange-400 hover:bg-orange-500/10 hover:text-orange-300"
-              minimal
-            />
-
-            <div className="w-px h-8 bg-slate-700 mx-1"></div>
-
-            <ActionButton
-              icon={<RefreshCw className="w-5 h-5" />}
-              label="Novo"
-              onClick={handleNewPlan}
-              color="text-slate-200 hover:bg-slate-800 hover:text-white"
-              minimal
-            />
-            <ActionButton
-              icon={<Camera className="w-5 h-5" />}
-              label="Print"
-              onClick={handleScreenshot}
-              color="text-slate-200 hover:bg-slate-800 hover:text-white"
-              minimal
-            />
-            <ActionButton
-              icon={<Save className="w-5 h-5" />}
-              label="Salvar"
-              onClick={handleOpenSave}
-              color="text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-              minimal
-            />
-            <ActionButton
-              icon={<List className="w-5 h-5" />}
-              label="Lista"
-              onClick={handleOpenList}
-              color="text-slate-200 hover:bg-slate-800 hover:text-white"
-              minimal
-            />
-            <ActionButton
-              icon={<FileDown className="w-5 h-5" />}
-              label="PDF"
-              onClick={handleExportPDF}
-              color="text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
-              minimal
-            />
-
-            <div className="w-px h-8 bg-slate-700 mx-1"></div>
-
-            <ActionButton
-              icon={<Info className="w-5 h-5" />}
-              label="Atalhos"
-              onClick={() => setShowShortcuts(true)}
-              color="text-slate-200 hover:bg-slate-800 hover:text-white"
-              minimal
-            />
-          </div>
+          {/* Bottom Toolbar */}
+          <Toolbar
+            undo={undo}
+            redo={redo}
+            historyState={historyState}
+            onOptimize={handleOptimize}
+            onNewPlan={handleNewPlan}
+            onScreenshot={handleScreenshot}
+            onSave={handleOpenSave}
+            onList={handleOpenList}
+            onPDF={handleExportPDF}
+            onShortcuts={() => setShowShortcuts(true)}
+          />
 
           {/* Controls HUD */}
-          <div className="absolute bottom-6 left-6 z-20">
-            <div className={`bg-slate-900/90 backdrop-blur-xl rounded-3xl shadow-2xl border border-slate-700 transition-all duration-300 ring-1 ring-black/50 ${showControlsHUD ? 'w-80' : 'w-auto'}`}>
-              {/* HUD Header */}
-              <div className="flex items-center justify-between p-3 border-b border-slate-800">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
-                  <span className="text-xs font-bold text-slate-200">Controles</span>
-                </div>
-                <button
-                  onClick={() => setShowControlsHUD(!showControlsHUD)}
-                  className="p-1 hover:bg-slate-800 rounded-lg transition-colors pointer-events-auto"
-                  title={showControlsHUD ? "Minimizar" : "Expandir"}
-                >
-                  {showControlsHUD ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
-                </button>
-              </div>
-
-              {/* HUD Content */}
-              {showControlsHUD && (
-                <div className="p-4 space-y-4 text-xs">
-                  {/* Mouse Controls */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Mouse className="w-4 h-4 text-orange-500" />
-                      <h4 className="font-bold text-slate-200">Mouse</h4>
-                    </div>
-                    <div className="space-y-1.5 pl-6">
-                      <ControlItem label="Clique Esquerdo" desc="Posicionar item" />
-                      <ControlItem label="Clique Direito" desc="Rotacionar câmera" />
-                      <ControlItem label="Scroll" desc="Zoom in/out" />
-                      <ControlItem label="Shift + Clique" desc="Preencher coluna" />
-                      <ControlItem label="Alt + Clique" desc="Empilhar lateral" />
-                    </div>
-                  </div>
-
-                  {/* Keyboard Controls */}
-                  <div>
-                    <div className="flex items-center gap-2 mb-2">
-                      <Keyboard className="w-4 h-4 text-orange-500" />
-                      <h4 className="font-bold text-slate-200">Teclado</h4>
-                    </div>
-                    <div className="space-y-1.5 pl-6">
-                      <ControlItem label="R" desc="Rotacionar item" />
-                      <ControlItem label="Delete" desc="Remover item" />
-                      <ControlItem label="G" desc="Alternar grade" />
-                      <ControlItem label="V" desc="Mudar visualização" />
-                      <ControlItem label="Setas" desc="Mover item" />
-                      <ControlItem label="Esc" desc="Cancelar" />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
+          <ControlsHUD
+            showControlsHUD={showControlsHUD}
+            setShowControlsHUD={setShowControlsHUD}
+          />
         </div>
       </div>
 
       {/* Shortcuts Modal */}
-      {
-        showShortcuts && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                <h3 className="font-bold text-slate-800">Atalhos do Teclado</h3>
-                <button onClick={() => setShowShortcuts(false)} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-              <div className="p-6 space-y-4">
-                <ShortcutKey k="R" desc="Rotacionar item (90°)" />
-                <ShortcutKey k="Espaço" desc="Alternar visualização (Iso/Top/Side)" />
-                <ShortcutKey k="G" desc="Alternar grade (Grid)" />
-                <ShortcutKey k="Delete" desc="Remover item selecionado" />
-                <ShortcutKey k="Setas" desc="Mover item selecionado (1cm)" />
-                <ShortcutKey k="V" desc="Empilhar Vertical (Duplicar no topo)" />
-                <ShortcutKey k="H" desc="Empilhar Horizontal (Duplicar ao lado)" />
-                <ShortcutKey k="PageUp/Down" desc="Ajustar altura do fantasma" />
-                <div className="text-xs text-slate-500 mt-4 pt-4 border-t border-slate-100">
-                  <p>💡 Clique em um item para selecionar. Clique no chão para posicionar.</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      }
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
       {/* Save Modal */}
-      {
-        showSaveModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200 p-6">
-              <h3 className="text-xl font-bold text-slate-800 mb-4">Salvar Plano de Carga</h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Documento <span className="text-red-500">*</span></label>
-                  <input className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all" value={saveForm.documento} onChange={e => setSaveForm({ ...saveForm, documento: e.target.value })} placeholder="Ex: NF-1234" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Carga <span className="text-red-500">*</span></label>
-                  <input className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all" value={saveForm.tipoCarga} onChange={e => setSaveForm({ ...saveForm, tipoCarga: e.target.value })} placeholder="Ex: Eletrônicos" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Processo (Opcional)</label>
-                  <input className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 outline-none transition-all" value={saveForm.processo} onChange={e => setSaveForm({ ...saveForm, processo: e.target.value })} placeholder="Ex: PROC-001" />
-                </div>
-                <div className="flex justify-end gap-2 mt-4">
-                  <button onClick={() => setShowSaveModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors">Cancelar</button>
-                  <button onClick={handleConfirmSave} disabled={saving} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 font-bold shadow-lg shadow-orange-500/20 transition-all flex items-center gap-2">
-                    {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {saving ? "Salvando..." : "Salvar e Baixar"}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      }
+      {/* Save Modal */}
+      {showSaveModal && (
+        <SaveModal
+          onClose={() => setShowSaveModal(false)}
+          onConfirm={handleConfirmSave}
+          saveForm={saveForm}
+          setSaveForm={setSaveForm}
+          saving={saving}
+        />
+      )}
 
       {/* Export Modal */}
-      {
-        showExportModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200 p-6">
-              <h3 className="text-xl font-bold text-slate-800 mb-4">Exportar PDF</h3>
-              <p className="text-sm text-slate-500 mb-4">Preencha as informações para o cabeçalho do relatório (opcional).</p>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Documento</label>
-                  <input className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all" value={saveForm.documento} onChange={e => setSaveForm({ ...saveForm, documento: e.target.value })} placeholder="Ex: NF-1234" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Tipo de Carga</label>
-                  <input className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none transition-all" value={saveForm.tipoCarga} onChange={e => setSaveForm({ ...saveForm, tipoCarga: e.target.value })} placeholder="Ex: Eletrônicos" />
-                </div>
-                <div className="flex justify-end gap-2 mt-4">
-                  <button onClick={() => setShowExportModal(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg font-medium transition-colors">Cancelar</button>
-                  <button onClick={confirmExportPDF} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-bold shadow-lg shadow-blue-500/20 transition-all flex items-center gap-2">
-                    <FileDown className="w-4 h-4" />
-                    Gerar PDF
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )
-      }
+      {/* Export Modal */}
+      {showExportModal && (
+        <ExportModal
+          onClose={() => setShowExportModal(false)}
+          onConfirm={confirmExportPDF}
+          saveForm={saveForm}
+          setSaveForm={setSaveForm}
+        />
+      )}
 
       {/* Confirmation Modal */}
       {
@@ -925,105 +698,18 @@ export default function FullLoad3D() {
         )
       }
 
+
       {/* List Modal */}
-      {
-        showListModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
-              <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                <h3 className="font-bold text-slate-800">Itens no Caminhão ({currentItems.length})</h3>
-                <button onClick={() => setShowListModal(false)} className="p-1 hover:bg-slate-200 rounded-full transition-colors">
-                  <X className="w-5 h-5 text-slate-500" />
-                </button>
-              </div>
-              <div className="p-4 overflow-y-auto flex-1">
-                {currentItems.length === 0 ? (
-                  <div className="text-center py-10">
-                    <Box className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                    <p className="text-slate-500">Nenhum item carregado.</p>
-                  </div>
-                ) : (
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-slate-500 border-b border-slate-100">
-                        <th className="pb-2 pl-2">Item</th>
-                        <th className="pb-2">Posição (x, y, z)</th>
-                        <th className="pb-2 pr-2">Dimensões</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {currentItems.map((item, i) => (
-                        <tr key={i} className="hover:bg-slate-50 transition-colors">
-                          <td className="py-3 pl-2 font-medium text-slate-900">{item.meta?.nome || "Item"}</td>
-                          <td className="py-3 text-slate-600 font-mono text-xs">
-                            {item.position[0].toFixed(0)}, {item.position[1].toFixed(0)}, {item.position[2].toFixed(0)}
-                          </td>
-                          <td className="py-3 pr-2 text-slate-600 font-mono text-xs">
-                            {item.scale[0].toFixed(0)}x{item.scale[1].toFixed(0)}x{item.scale[2].toFixed(0)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </div>
-        )
-      }
+      {/* List Modal */}
+      {showListModal && (
+        <ListModal
+          onClose={() => setShowListModal(false)}
+          items={currentItems}
+        />
+      )}
 
     </div >
   );
 }
 
-function ActionButton({ icon, label, onClick, color, minimal }) {
-  if (minimal) {
-    return (
-      <button
-        onClick={onClick}
-        className={`group relative flex items-center justify-center p-3 rounded-xl transition-all duration-200 hover:scale-110 ${color}`}
-      >
-        {icon}
-        {/* Tooltip */}
-        <span className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none border border-slate-700 shadow-xl">
-          {label}
-        </span>
-      </button>
-    );
-  }
 
-  return (
-    <button
-      onClick={onClick}
-      className={`group flex items-center gap-3 px-4 py-3 rounded-xl shadow-lg shadow-slate-900/5 transition-all duration-200 hover:scale-105 hover:shadow-xl ${color}`}
-      title={label}
-    >
-      {icon}
-      <span className="font-medium text-sm hidden group-hover:block animate-in slide-in-from-right-2 duration-200 whitespace-nowrap">
-        {label}
-      </span>
-    </button>
-  );
-}
-
-function ShortcutKey({ k, desc }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-sm text-slate-400">{desc}</span>
-      <kbd className="px-2 py-1 bg-slate-800 border border-slate-700 rounded-lg text-xs font-bold text-slate-300 min-w-[2rem] text-center shadow-sm">
-        {k}
-      </kbd>
-    </div>
-  );
-}
-
-function ControlItem({ label, desc }) {
-  return (
-    <div className="flex items-start justify-between gap-2">
-      <kbd className="px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-[10px] font-bold text-slate-300 whitespace-nowrap flex-shrink-0">
-        {label}
-      </kbd>
-      <span className="text-slate-400 text-[11px] leading-tight">{desc}</span>
-    </div>
-  );
-}

@@ -58,6 +58,7 @@ export default function Login() {
       // 6️⃣ Salva informações no localStorage
       localStorage.setItem("uid", uid);
       localStorage.setItem("role", userData.role || "user");
+      localStorage.setItem("userCargo", userData.cargo || "Operador");
       localStorage.setItem("nome", userData.nome || "");
       localStorage.setItem("empresaId", userData.empresaId);
       localStorage.setItem("empresaNome", empresaData.nome || "");
@@ -198,7 +199,7 @@ export default function Login() {
 
           <div className="mt-8 pt-8 border-t border-slate-100 text-center">
             <p className="text-xs text-slate-400 font-medium">
-              © {new Date().getFullYear()} FullLoad Tecnologia. <br /> Todos os direitos reservados.
+              © 2025 LoadHub <br /> Todos os direitos reservados.
             </p>
           </div>
         </div>

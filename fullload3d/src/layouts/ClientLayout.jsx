@@ -21,9 +21,11 @@ import {
   Settings,
   CreditCard,
   MessageCircle,
-  Send
+  Send,
+  FileText
 } from "lucide-react";
 import NavItem from "../components/NavItem";
+import SupportBot from "../components/SupportBot";
 
 export default function ClientLayout({ children }) {
   const navigate = useNavigate();
@@ -36,55 +38,11 @@ export default function ClientLayout({ children }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showChat, setShowChat] = useState(false);
 
   const [notifications, setNotifications] = useState([]);
 
-  // Chat State
-  const [chatStep, setChatStep] = useState(0); // 0: Start, 1: Email, 2: Problem, 3: Final
-  const [chatInput, setChatInput] = useState("");
-  const [chatHistory, setChatHistory] = useState([
-    { type: 'bot', text: 'Olá! 👋 Como posso ajudar você hoje?' }
-  ]);
-  const chatEndRef = React.useRef(null);
 
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [chatHistory, showChat]);
 
-  useEffect(() => {
-    const handleOpenChat = () => setShowChat(true);
-    window.addEventListener('openChat', handleOpenChat);
-    return () => window.removeEventListener('openChat', handleOpenChat);
-  }, []);
-
-  const handleChatSubmit = (e) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-
-    const userMsg = chatInput;
-    setChatHistory(prev => [...prev, { type: 'user', text: userMsg }]);
-    setChatInput("");
-
-    // Bot Logic
-    setTimeout(() => {
-      let botMsg = "";
-      if (chatStep === 0) {
-        botMsg = "Para continuarmos, qual é o seu e-mail?";
-        setChatStep(1);
-      } else if (chatStep === 1) {
-        botMsg = "Obrigado! E qual é o problema ou dúvida que você tem?";
-        setChatStep(2);
-      } else if (chatStep === 2) {
-        botMsg = "Entendi. Para um atendimento mais rápido, por favor entre em contato via WhatsApp clicando no link abaixo.";
-        setChatStep(3);
-      }
-
-      if (botMsg) {
-        setChatHistory(prev => [...prev, { type: 'bot', text: botMsg }]);
-      }
-    }, 1000);
-  };
 
   // Load Notifications
   useEffect(() => {
@@ -102,6 +60,8 @@ export default function ClientLayout({ children }) {
         ...doc.data()
       }));
       setNotifications(notifs);
+    }, (error) => {
+      console.error("Erro ao buscar notificações:", error);
     });
 
     return () => unsubscribe();
@@ -285,6 +245,7 @@ export default function ClientLayout({ children }) {
           <NavItem to="/Carregamento" icon={Package} label="Planos de Carga" isOpen={isSidebarOpen} active={location.pathname === "/Carregamento"} />
           <NavItem to="/Mercadoria" icon={Box} label="Mercadorias" isOpen={isSidebarOpen} active={location.pathname === "/Mercadoria"} />
           <NavItem to="/Caminhao" icon={Truck} label="Caminhões" isOpen={isSidebarOpen} active={location.pathname === "/Caminhao"} />
+          <NavItem to="/relatorios" icon={FileText} label="Relatórios" isOpen={isSidebarOpen} active={location.pathname === "/relatorios"} />
 
           <div className="pt-4 pb-2">
             <p className={`px-4 text-[10px] font-bold text-slate-500 uppercase tracking-wider transition-all duration-300 ${!isSidebarOpen && "text-center"}`}>
@@ -451,66 +412,7 @@ export default function ClientLayout({ children }) {
       </div>
 
       {/* Chat Widget */}
-      <div className="fixed bottom-6 right-6 z-50">
-        {showChat ? (
-          <div className="bg-white rounded-2xl shadow-2xl w-80 h-96 flex flex-col overflow-hidden animate-in slide-in-from-bottom-10 border border-slate-200">
-            <div className="bg-orange-600 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold flex items-center gap-2"><MessageCircle size={18} /> Suporte Online</h3>
-              <button onClick={() => setShowChat(false)} className="hover:bg-white/20 p-1 rounded"><X size={18} /></button>
-            </div>
-            <div className="flex-1 p-4 bg-slate-50 overflow-y-auto">
-              {chatHistory.map((msg, idx) => (
-                <div key={idx} className={`mb-3 flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`p-3 rounded-xl shadow-sm text-sm max-w-[85%] border ${msg.type === 'user'
-                    ? 'bg-orange-600 text-white rounded-tr-none border-orange-600'
-                    : 'bg-white text-slate-700 rounded-tl-none border-slate-100'
-                    }`}>
-                    {msg.text}
-                  </div>
-                </div>
-              ))}
-              {chatStep === 3 && (
-                <div className="mb-3 flex justify-start">
-                  <a
-                    href="https://wa.me/555193862814"
-                    target="_blank"
-                    rel="noreferrer"
-                    className="p-3 rounded-xl shadow-sm text-sm max-w-[85%] bg-green-500 text-white font-bold hover:bg-green-600 transition-colors flex items-center gap-2 cursor-pointer"
-                  >
-                    <MessageCircle size={16} /> Abrir WhatsApp
-                  </a>
-                </div>
-              )}
-              <div ref={chatEndRef} />
-            </div>
-            <form onSubmit={handleChatSubmit} className="p-3 border-t border-slate-100 bg-white flex gap-2">
-              <input
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                onKeyDown={(e) => e.stopPropagation()}
-                className="flex-1 bg-slate-100 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-500/20"
-                placeholder="Digite sua mensagem..."
-                disabled={chatStep === 3}
-              />
-              <button
-                type="submit"
-                disabled={chatStep === 3}
-                className="p-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Send size={16} />
-              </button>
-            </form>
-          </div>
-        ) : (
-          <button
-            onClick={() => setShowChat(true)}
-            className="w-14 h-14 bg-orange-600 hover:bg-orange-700 text-white rounded-full shadow-lg shadow-orange-600/30 flex items-center justify-center transition-transform hover:scale-110"
-          >
-            <MessageCircle size={28} />
-            <span className="absolute top-0 right-0 w-4 h-4 bg-green-500 border-2 border-white rounded-full"></span>
-          </button>
-        )}
-      </div>
+      <SupportBot />
     </div >
   );
 }

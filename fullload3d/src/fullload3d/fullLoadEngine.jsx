@@ -148,8 +148,12 @@ export function initFullLoadEngine(container, initialBau = null) {
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
   camera.position.set(-3, 4, 5); // Default position, will be focused later
 
-  // 2. Renderer
-  const rendererParams = { antialias: true, alpha: true };
+  // 2. Renderer - optimized for performance
+  const rendererParams = {
+    antialias: false, // Disabled for performance
+    alpha: true,
+    powerPreference: "high-performance" // Use high-performance GPU
+  };
   const isCanvas = container.tagName === "CANVAS";
   if (isCanvas) {
     rendererParams.canvas = container;
@@ -157,8 +161,10 @@ export function initFullLoadEngine(container, initialBau = null) {
 
   renderer = new THREE.WebGLRenderer(rendererParams);
   renderer.setSize(container.clientWidth, container.clientHeight);
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Softer shadows
+  // Limit pixel ratio for performance (max 2)
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  // Shadows disabled for massive performance improvement with many objects
+  renderer.shadowMap.enabled = false;
 
   if (!isCanvas) {
     container.innerHTML = "";
@@ -170,9 +176,14 @@ export function initFullLoadEngine(container, initialBau = null) {
   hemiLight.position.set(0, 20, 0);
   scene.add(hemiLight);
 
-  const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+  // Ambient light for better visibility (replaces expensive shadows)
+  const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambientLight);
+
+  const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
   dirLight.position.set(10, 20, 10);
-  dirLight.castShadow = true;
+  // Shadows disabled for performance
+  dirLight.castShadow = false;
   dirLight.shadow.mapSize.width = 2048;
   dirLight.shadow.mapSize.height = 2048;
   dirLight.shadow.camera.near = 0.1;
@@ -618,6 +629,15 @@ export function initFullLoadEngine(container, initialBau = null) {
 
   // keyboard shortcuts
   function onKeyDown(e) {
+    // ESC: Cancel Ghost (Exit placement mode)
+    if (e.key === "Escape") {
+      if (ghost.visible) {
+        setGhostMeta(null); // Hide ghost
+        console.log("👻 Modo de colocação cancelado");
+      }
+      return;
+    }
+
     // G: Grid
     if (e.key === "g" || e.key === "G") {
       gridHelper.visible = !gridHelper.visible;
@@ -933,40 +953,8 @@ export function initFullLoadEngine(container, initialBau = null) {
     labelPeito.position.set(L - 0.1, H / 2, W / 2);
     bauGroup.add(labelPeito);
 
-    // --- CABIN VISUAL (Peito) ---
-    // Industrial Material (Metallic, Transparent)
-    const cabinMat = new THREE.MeshPhysicalMaterial({
-      color: 0x334155, // Slate-700
-      metalness: 0.6,
-      roughness: 0.2,
-      transmission: 0.1, // Slight glass effect
-      transparent: true,
-      opacity: 0.7,
-      side: THREE.DoubleSide
-    });
-
-    // 1. Main Cabin (Head)
-    const cabinGeo = new THREE.BoxGeometry(1.5, H * 0.8, W);
-    const cabin = new THREE.Mesh(cabinGeo, cabinMat);
-    cabin.position.set(-0.8, H * 0.4, W / 2); // Positioned before x=0
-    bauGroup.add(cabin);
-
-    // 2. Cabin Nose (Engine Block) - The "smaller square" requested
-    const noseGeo = new THREE.BoxGeometry(1.0, H * 0.5, W * 0.8);
-    const nose = new THREE.Mesh(noseGeo, cabinMat);
-    nose.position.set(-2.05, H * 0.25, W / 2); // In front of cabin (-1.55 - 0.5)
-    bauGroup.add(nose);
-
-    // Cabin Window
-    const windowGeo = new THREE.BoxGeometry(0.1, H * 0.3, W * 0.8);
-    const windowMat = new THREE.MeshStandardMaterial({
-      color: 0x94a3b8,
-      transparent: true,
-      opacity: 0.5
-    });
-    const cabWindow = new THREE.Mesh(windowGeo, windowMat);
-    cabWindow.position.set(-0.1, H * 0.5, W / 2);
-    bauGroup.add(cabWindow);
+    // --- CABIN VISUAL (Peito) --- REMOVED
+    // Cabin geometry removed per user request
 
     // --- LOGO ---
     const textureLoader = new THREE.TextureLoader();
@@ -1000,8 +988,34 @@ export function initFullLoadEngine(container, initialBau = null) {
   // API: setItems(items) - reconstruct placed items
   // items = [{ id, position: [x,y,z], rotation: [rx,ry,rz], scale: [sx,sy,sz], tipo, meta }]
   function setItems(items = []) {
-    // remove those not present
-    const incomingIds = new Set(items.map((i) => i.id));
+    console.log("🔄 Engine: setItems called with", items.length, "items");
+
+    // Track seen IDs to prevent collisions (fixes corrupted plans)
+    const seenIds = new Set();
+
+    // remove those not present in the new list (by ID)
+    // Note: If input IDs were missing/duplicate, this logic might have been flawed.
+    // But for now, let's just clear if we are doing a full set.
+    // Actually, setItems is usually called to REPLACE everything.
+    // But the original logic tries to be smart.
+    // Let's stick to the smart logic but be careful.
+
+    // If we are recovering from bad data, the IDs in 'items' might be garbage.
+    // So we might want to just clearScene if it's a full load.
+    // But setItems is also used for updates?
+    // The current usage in FullLoad3d.jsx is for loading a plan.
+
+    // Let's generate a clean list of items with unique IDs first
+    const cleanItems = items.map(item => {
+      let id = item.id;
+      if (!id || seenIds.has(id)) {
+        id = (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : `restored_${Date.now()}_${Math.random()}`;
+      }
+      seenIds.add(id);
+      return { ...item, id };
+    });
+
+    const incomingIds = new Set(cleanItems.map((i) => i.id));
     for (const key of Array.from(placed.keys())) {
       if (!incomingIds.has(key)) {
         const e = placed.get(key);
@@ -1010,7 +1024,7 @@ export function initFullLoadEngine(container, initialBau = null) {
       }
     }
 
-    for (const data of items) {
+    for (const data of cleanItems) {
       const id = data.id;
       if (placed.has(id)) {
         // update transform and aabb
@@ -1397,8 +1411,12 @@ export function initFullLoadEngine(container, initialBau = null) {
 
       console.log("Optimizer Output:", result);
 
+      console.log("✅ Otimizador retornou:", result.placed.length, "itens colocados,", result.unplaced.length, "não colocados");
+      console.log("📊 Antes da otimização:", currentItems.length, "itens");
+      console.log("📊 Depois da otimização:", result.placed.length, "itens");
+
       // Apply result
-      clearScene(false); // Clear but don't reset camera/bau
+      clearScene(true); // Clear but don't save to history (already saved at line 1374)
 
       result.placed.forEach(p => {
         // Safety Check: Verify bounds
@@ -1488,7 +1506,8 @@ export function initFullLoadEngine(container, initialBau = null) {
   }
 
   function captureSnapshot(view) {
-    if (view) setView(view);
+    // Only change view if specified and not 'current'
+    if (view && view !== 'current') setView(view);
     renderer.render(scene, camera);
     return renderer.domElement.toDataURL("image/png");
   }
@@ -1496,6 +1515,7 @@ export function initFullLoadEngine(container, initialBau = null) {
   function getPlacedItems() {
     return Array.from(placed.values()).map(p => ({
       ...p.data,
+      id: p.mesh.userData.colocId, // CRITICAL: Save the unique placement ID
       position: [p.mesh.position.x, p.mesh.position.y, p.mesh.position.z],
       rotation: [p.mesh.rotation.x, p.mesh.rotation.y, p.mesh.rotation.z],
       scale: [p.mesh.userData._size.x, p.mesh.userData._size.y, p.mesh.userData._size.z],

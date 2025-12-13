@@ -15,18 +15,31 @@ export function mToCm(m) {
 // GEOMETRY HELPERS
 // ===========================
 
+// Material cache for reuse
+const materialCache = new Map();
+
+function getMaterial(color) {
+  const key = color.toString();
+  if (!materialCache.has(key)) {
+    materialCache.set(key, new THREE.MeshStandardMaterial({
+      color: color,
+      roughness: 0.7,
+      metalness: 0,
+      flatShading: true // Faster rendering
+    }));
+  }
+  return materialCache.get(key);
+}
+
 export function createBoxMesh(size, color) {
   const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
-  const material = new THREE.MeshStandardMaterial({
-    color: color,
-    roughness: 0.5,
-    metalness: 0.1,
-  });
+  const material = getMaterial(color);
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  // Shadows disabled for performance
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
 
-  // Add edges (outline)
+  // Add edges (outline) - restored per user request
   const edges = new THREE.EdgesGeometry(geometry);
   const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
   mesh.add(line);
@@ -35,39 +48,31 @@ export function createBoxMesh(size, color) {
 }
 
 export function createCylinderMesh({ diameter, height, color }) {
-  const geometry = new THREE.CylinderGeometry(diameter / 2, diameter / 2, height, 32);
-  const material = new THREE.MeshStandardMaterial({
-    color: color,
-    roughness: 0.5,
-    metalness: 0.1,
-  });
+  // Reduced segments from 32 to 8 for 4x performance improvement
+  const geometry = new THREE.CylinderGeometry(diameter / 2, diameter / 2, height, 8);
+  const material = getMaterial(color);
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  // Shadows disabled for performance
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
 
-  // Add edges (outline)
-  // For cylinder, EdgesGeometry might be too busy with vertical lines. 
-  // Let's try it, or use a threshold angle.
-  const edges = new THREE.EdgesGeometry(geometry, 30); // Threshold angle to avoid too many lines
+  // Add edges (outline) - restored per user request
+  const edges = new THREE.EdgesGeometry(geometry, 30);
   const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
   mesh.add(line);
 
-  // Rotate to stand up if needed? Three.js cylinder is Y-up by default, which matches our logic.
   return mesh;
 }
 
 export function createTireMesh({ radius, width, color }) {
-  // Tire is a cylinder rotated 90deg on Z usually, or just a cylinder
-  // Let's assume simple cylinder for now
-  const geometry = new THREE.CylinderGeometry(radius, radius, width, 32);
+  // Reduced segments from 32 to 8 for performance
+  const geometry = new THREE.CylinderGeometry(radius, radius, width, 8);
   geometry.rotateZ(Math.PI / 2); // Rotate to lie on side
-  const material = new THREE.MeshStandardMaterial({
-    color: color || 0x333333,
-    roughness: 0.9,
-  });
+  const material = getMaterial(color || 0x333333);
   const mesh = new THREE.Mesh(geometry, material);
-  mesh.castShadow = true;
-  mesh.receiveShadow = true;
+  // Shadows disabled for performance
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
   return mesh;
 }
 

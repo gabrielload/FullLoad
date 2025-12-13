@@ -51,7 +51,7 @@ export default function Configuracoes() {
         } else if (type === "caminhoes") {
             data = [
                 {
-                    nome: "Caminhão Exemplo",
+                    nome: "Veículo Exemplo",
                     modelo: "Scania R450",
                     placa: "ABC-1234",
                     comprimento: 1360,
@@ -143,7 +143,7 @@ export default function Configuracoes() {
                                 className="flex items-center justify-between p-4 rounded-xl border border-slate-200 hover:bg-slate-50 transition-colors group"
                             >
                                 <div className="text-left">
-                                    <p className="font-bold text-slate-700">Modelo Caminhões</p>
+                                    <p className="font-bold text-slate-700">Modelo Veículos</p>
                                     <p className="text-xs text-slate-400">CSV para importar veículos</p>
                                 </div>
                                 <FileDown className="text-slate-400 group-hover:text-orange-500 transition-colors" size={20} />

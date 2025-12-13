@@ -244,7 +244,7 @@ export default function Carregamento() {
           <div>
             <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
               <Package className="w-8 h-8 text-orange-500" />
-              Carregamentos
+              Planos de Carga
             </h1>
             <p className="text-slate-500 mt-1">
               Gerencie seus planos e carregamentos salvos.
@@ -272,51 +272,7 @@ export default function Carregamento() {
           </div>
         )}
 
-        {/* Lista de Carregamentos Manuais */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-          <div className="px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-            <h2 className="text-lg font-bold text-slate-900">Carregamentos Recentes</h2>
-            <p className="text-xs text-slate-500 mt-0.5">Cargas registradas manualmente</p>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-slate-50/50 border-b border-slate-100">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Descrição</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Data</th>
-                  <th className="px-6 py-4 text-left text-xs font-bold text-slate-400 uppercase tracking-wider">Qtd</th>
-                  <th className="px-6 py-4 text-right text-xs font-bold text-slate-400 uppercase tracking-wider">Ações</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {carregamentos
-                  .filter(c => c.descricao.toLowerCase().includes(searchTerm.toLowerCase()))
-                  .map((c) => (
-                    <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-6 py-4 whitespace-nowrap font-bold text-slate-700">{c.descricao}</td>
-                      <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={c.status} /></td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">{c.dataEntrada?.toDate ? c.dataEntrada.toDate().toLocaleDateString() : new Date().toLocaleDateString()}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">{c.quantidade}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <button
-                          onClick={() => showModal("Aviso", "Este carregamento não possui um plano 3D associado.", "warning")}
-                          className="px-3 py-1.5 bg-slate-100 text-slate-400 hover:bg-slate-200 hover:text-slate-600 rounded-lg transition-colors text-xs font-bold"
-                        >
-                          Abrir 3D
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                {carregamentos.length === 0 && (
-                  <tr>
-                    <td colSpan="5" className="px-6 py-8 text-center text-slate-400">Nenhum carregamento manual encontrado.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+
 
         {/* Lista de Planos 3D Salvos */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
