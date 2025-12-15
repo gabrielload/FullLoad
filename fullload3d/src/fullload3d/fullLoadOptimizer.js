@@ -282,7 +282,7 @@ export async function optimize(currentItems, truckDims) {
         })),
         unplaced: unplacedItems,
         stats: {
-            totalItems: itemsToPack.length + unplacedItems.length, // Correct count logic
+            totalItems: currentItems.length, // Use original input length
             placedCount: placedItems.length,
             volumeUtilization: (placedItems.reduce((acc, i) => acc + i.vol, 0) / truck.volume) * 100
         }

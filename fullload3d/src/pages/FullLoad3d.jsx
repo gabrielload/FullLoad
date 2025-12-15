@@ -125,6 +125,7 @@ export default function FullLoad3D() {
 
     const handleUpdated = () => {
       const items = getPlacedItems();
+      setCurrentItems(items); // Sync currentItems with engine
       const totalWeight = items.reduce((acc, item) => acc + Number(item.meta?.peso || 0), 0);
       setStats({ count: items.length, weight: totalWeight });
     };
@@ -139,11 +140,11 @@ export default function FullLoad3D() {
         setIsOptimizing(true);
       } else if (status === "complete") {
         setIsOptimizing(false);
-        setSuccess(`Otimização concluída! Eficiência: ${stats.volumeUtilization.toFixed(1)}%`);
+        setSuccessToast(`Otimização concluída! Eficiência: ${stats.volumeUtilization.toFixed(1)}%`);
         if (unplaced && unplaced.length > 0) {
-          setTimeout(() => setError(`${unplaced.length} itens não puderam ser alocados.`), 2000);
+          setTimeout(() => setErrorToast(`${unplaced.length} itens não puderam ser alocados.`), 2000);
         }
-        setTimeout(() => setSuccess(""), 4000);
+        setTimeout(() => setSuccessToast(null), 4000);
       } else if (status === "error") {
         setIsOptimizing(false);
       }
@@ -187,17 +188,34 @@ export default function FullLoad3D() {
   //   AUTO-SAVE & AUTO-RESTORE
   // ============================
   // Auto-restore from localStorage on mount
+  // Auto-restore from localStorage on mount (ONLY if NOT loading a specific plan)
   useEffect(() => {
     if (!isEngineReady) return;
+
+    // If we are loading a specific plan (planId exists), DO NOT restore from autosave
+    if (planId) {
+      console.log("🚫 Ignorando autosave pois um PlanID foi fornecido.");
+      return;
+    }
 
     try {
       const savedBau = localStorage.getItem("fullload_autosave_bau");
       const savedItems = localStorage.getItem("fullload_autosave_items");
 
       if (savedBau) {
-        const bau = JSON.parse(savedBau);
+        let bau = JSON.parse(savedBau);
         console.log("🔄 Restaurando baú do autosave:", bau);
-        setBauDimensions(bau.L, bau.H, bau.W);
+
+        // CORRECTION: Auto-save stores METERS, but setBauDimensions expects CM.
+        // Heuristic: If L is small (< 100), it's likely meters.
+        const boxL = Number(bau.L);
+        const boxH = Number(bau.H);
+        const boxW = Number(bau.W);
+
+        const isMeters = boxL < 50; // 50m is a huge truck, so < 50 is safely meters
+        const factor = isMeters ? 100 : 1;
+
+        setBauDimensions(boxL * factor, boxH * factor, boxW * factor);
       }
 
       if (savedItems) {
@@ -210,7 +228,7 @@ export default function FullLoad3D() {
     } catch (err) {
       console.error("Erro ao restaurar autosave:", err);
     }
-  }, [isEngineReady]);
+  }, [isEngineReady, planId]);
 
   // Auto-save on state changes
   useEffect(() => {
@@ -400,9 +418,15 @@ export default function FullLoad3D() {
         if (data.items && isEngineReady) { // Only load items when engine is ready
           console.log("📍 Engine Ready, loading items into scene...");
           try {
-            setItems(data.items);
-            setCurrentItems(data.items);
-            setIsLoadingPlan(false); // Done loading
+            // Explicitly clear scene before loading to ensure clean state
+            clearScene();
+
+            // Allow a tiny microtask delay for clear to process if needed
+            setTimeout(() => {
+              setItems(data.items);
+              setCurrentItems(data.items);
+              setIsLoadingPlan(false); // Done loading
+            }, 50);
           } catch (e) {
             console.error("Erro ao definir itens:", e);
           }
@@ -633,6 +657,7 @@ export default function FullLoad3D() {
             onList={handleOpenList}
             onPDF={handleExportPDF}
             onShortcuts={() => setShowShortcuts(true)}
+            items={currentItems}
           />
 
           {/* Controls HUD */}

@@ -62,11 +62,11 @@ export default function App() {
       {/* Login */}
       <Route path="/" element={<Login />} />
 
-      {/* Dashboard - acessível por user e master */}
+      {/* Dashboard - acessível por user, admin e master */}
       <Route
         path="/dashboard"
         element={
-          <ProtectedRoute allowed={["user", "master"]}>
+          <ProtectedRoute allowed={["user", "admin", "master"]}>
             <Dashboard />
           </ProtectedRoute>
         }
@@ -110,7 +110,7 @@ export default function App() {
       <Route
         path="/Carregamento"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <Carregamento />
           </ProtectedRoute>
         }
@@ -119,7 +119,7 @@ export default function App() {
       <Route
         path="/Mercadoria"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <Mercadoria />
           </ProtectedRoute>
         }
@@ -127,7 +127,7 @@ export default function App() {
       <Route
         path="/UserClient"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <UserClient />
           </ProtectedRoute>
         }
@@ -135,7 +135,7 @@ export default function App() {
       <Route
         path="/Caminhao"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <Caminhao />
           </ProtectedRoute>
         }
@@ -145,7 +145,7 @@ export default function App() {
       <Route
         path="/FullLoad"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <FullLoad />
           </ProtectedRoute>
         }
@@ -154,7 +154,7 @@ export default function App() {
       <Route
         path="/meu-plano"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <MeuPlano />
           </ProtectedRoute>
         }
@@ -162,7 +162,7 @@ export default function App() {
       <Route
         path="/relatorios"
         element={
-          <ProtectedRoute allowed={["user"]}>
+          <ProtectedRoute allowed={["user", "admin"]}>
             <Relatorios />
           </ProtectedRoute>
         }
@@ -170,9 +170,9 @@ export default function App() {
 
 
       {/* Fallback */}
-      <Route path="/perfil" element={<ProtectedRoute allowed={["user", "master"]}><Perfil /></ProtectedRoute>} />
-      <Route path="/configuracoes" element={<ProtectedRoute allowed={["user", "master"]}><Configuracoes /></ProtectedRoute>} />
-      <Route path="/ajuda" element={<ProtectedRoute allowed={["user", "master"]}><Ajuda /></ProtectedRoute>} />
+      <Route path="/perfil" element={<ProtectedRoute allowed={["user", "admin", "master"]}><Perfil /></ProtectedRoute>} />
+      <Route path="/configuracoes" element={<ProtectedRoute allowed={["user", "admin", "master"]}><Configuracoes /></ProtectedRoute>} />
+      <Route path="/ajuda" element={<ProtectedRoute allowed={["user", "admin", "master"]}><Ajuda /></ProtectedRoute>} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

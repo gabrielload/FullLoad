@@ -345,7 +345,7 @@ export default function Carregamento() {
                         <td className="px-6 py-4 whitespace-nowrap text-right">
                           <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                             <button
-                              onClick={(e) => { e.stopPropagation(); navigate(`/fullload3d?planId=${p.id}`); }}
+                              onClick={(e) => { e.stopPropagation(); navigate(`/FullLoad?planId=${p.id}`); }}
                               className="px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg hover:bg-orange-100 transition-colors text-xs font-bold border border-orange-100"
                             >
                               Abrir 3D

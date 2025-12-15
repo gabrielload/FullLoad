@@ -108,6 +108,7 @@ export default function Usuarios() {
         await updateDoc(userRef, {
           nome: form.nome,
           role: form.role,
+          cargo: form.role === "admin" ? "Administrador" : "Operador",
           empresaId: form.empresaId,
           ativo: form.ativo,
         });
@@ -137,6 +138,7 @@ export default function Usuarios() {
           nome: form.nome,
           email: form.email,
           role: form.role,
+          cargo: form.role === "admin" ? "Administrador" : "Operador",
           empresaId: form.empresaId,
           ativo: form.ativo,
           criadoEm: new Date(),

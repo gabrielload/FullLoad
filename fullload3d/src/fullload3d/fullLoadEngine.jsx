@@ -799,19 +799,34 @@ export function initFullLoadEngine(container, initialBau = null) {
   window.addEventListener("keydown", onKeyDown);
 
   function setView(view) {
-    if (!bauInnerBox) return;
+    if (!bauInnerBox || !camera || !controls) return;
+
+    // bauInnerBox.max contains {x: L, y: H, z: W}
     const L = bauInnerBox.max.x;
-    const W = bauInnerBox.max.z;
     const H = bauInnerBox.max.y;
-    controls.target.set(L / 2, H / 2, W / 2);
+    const W = bauInnerBox.max.z;
 
-    if (view === "iso") camera.position.set(-L * 0.5, H * 3, W * 2.5);
-    else if (view === "top") camera.position.set(L / 2, H * 4, W / 2);
-    else if (view === "side") camera.position.set(L / 2, H / 2, W * 3);
-    else if (view === "back") camera.position.set(-L, H / 2, W / 2);
+    const center = new THREE.Vector3(L / 2, H / 2, W / 2);
 
-    camera.lookAt(controls.target);
-    controls.update();
+    if (view === "iso") {
+      focusCamera(); // Use smart focus for ISO
+    } else {
+      // Standard views
+      controls.target.copy(center);
+      const maxDim = Math.max(L, H, W);
+      const dist = maxDim * 1.5;
+
+      if (view === "top") camera.position.set(center.x, center.y + dist, center.z); // Top-down
+      else if (view === "side") camera.position.set(center.x, center.y, center.z + dist); // Side (Z+)
+      else if (view === "back") camera.position.set(center.x + dist, center.y, center.z); // Back? Actually X+ is usually back or front depending on axis.
+      // Truck: X=0 is Peito (Front), X=L is Fundo (Back).
+      // So Back view should be looking at Fundo? Or looking FROM back?
+      // Usually "Back View" means looking AT the back of the truck.
+      // If Fundo is at X=L, we should be at X = L + dist.
+
+      camera.lookAt(controls.target);
+      controls.update();
+    }
   }
 
   // window events: placeManual
@@ -878,11 +893,13 @@ export function initFullLoadEngine(container, initialBau = null) {
     // truck.tamanhoBau may be an object with cm values either as { L,W,H } or { comprimento, largura, altura }
     const tbRaw = truck.tamanhoBau || truck;
     const orderedCm = normalizeAndOrderBau(tbRaw);
+    console.log("🚚 setBau: Raw", tbRaw, "Normalized (cm)", orderedCm);
 
     // convert to meters
     const L = cmToM(orderedCm.L);
     const W = cmToM(orderedCm.W);
     const H = cmToM(orderedCm.H);
+    console.log("🚚 setBau: Derived (m)", { L, W, H });
 
     // build group
     bauGroup = new THREE.Group();
@@ -953,25 +970,20 @@ export function initFullLoadEngine(container, initialBau = null) {
     labelPeito.position.set(L - 0.1, H / 2, W / 2);
     bauGroup.add(labelPeito);
 
-    // --- CABIN VISUAL (Peito) --- REMOVED
-    // Cabin geometry removed per user request
-
     // --- LOGO ---
     const textureLoader = new THREE.TextureLoader();
     textureLoader.load('/logo.png', (texture) => {
       const logoMat = new THREE.SpriteMaterial({ map: texture, transparent: true, opacity: 0.8 });
       const logo = new THREE.Sprite(logoMat);
       logo.scale.set(1, 1, 1);
-      logo.position.set(L / 2, 0.05, W / 2); // Center of floor
-      // Rotate sprite to lie flat? Sprites always face camera.
-      // If we want it flat on floor, use a Plane.
+      logo.position.set(L / 2, 0.05, W / 2);
 
       const planeGeo = new THREE.PlaneGeometry(1.5, 1.5);
       const planeMat = new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.5, side: THREE.DoubleSide });
       const logoPlane = new THREE.Mesh(planeGeo, planeMat);
       logoPlane.rotation.x = -Math.PI / 2;
       logoPlane.position.set(L / 2, 0.03, W / 2);
-      bauGroup.add(logoPlane);
+      if (bauGroup) bauGroup.add(logoPlane);
     });
 
     scene.add(bauGroup);
@@ -981,8 +993,58 @@ export function initFullLoadEngine(container, initialBau = null) {
       max: { x: L, y: H, z: W },
     };
 
-    // focus camera
+    console.log("🚚 setBau: Finished. Scheduling focusCamera.");
+
+    // Call immediately AND with timeout to be safe
     focusCamera();
+    setTimeout(focusCamera, 100);
+  }
+
+  function focusCamera() {
+    console.log("🎥 focusCamera: Triggered");
+    if (!bauInnerBox || !camera || !controls) {
+      console.warn("🎥 focusCamera: Missing dependencies", { bauInnerBox, camera: !!camera, controls: !!controls });
+      return;
+    }
+
+    const L = bauInnerBox.max.x;
+    const H = bauInnerBox.max.y;
+    const W = bauInnerBox.max.z;
+
+    // Center of the truck
+    const center = new THREE.Vector3(L / 2, H / 2, W / 2);
+
+    // Bounding Box Dimensions
+    const maxDim = Math.max(L, H, W);
+
+    // Convert FOV to radians
+    const fov = camera.fov * (Math.PI / 180);
+
+    // Calculate distance to fit the object
+    // We use the largest dimension to ensure everything fits
+    // Factor 1.5 is margin
+    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 1.8;
+
+    // Enforce minimum distance to prevent macro zoom on small objects
+    cameraZ = Math.max(cameraZ, 8.0);
+
+    console.log("🎥 focusCamera: Calc", { L, H, W, maxDim, fov, cameraZ, center });
+
+    // Position: ISO-like diagonal
+    const direction = new THREE.Vector3(-1, 1, 1).normalize(); // Standard ISO
+    const position = center.clone().add(direction.multiplyScalar(cameraZ));
+
+    console.log("🎥 focusCamera: Setting Position", position);
+
+    camera.position.copy(position);
+    controls.target.copy(center);
+
+    // Update ranges
+    camera.near = 0.1;
+    camera.far = Math.max(200, cameraZ * 5);
+    camera.updateProjectionMatrix();
+
+    controls.update();
   }
 
   // API: setItems(items) - reconstruct placed items
@@ -1083,6 +1145,9 @@ export function initFullLoadEngine(container, initialBau = null) {
         console.error("Erro ao reconstruir item setItems:", err, data);
       }
     }
+
+    // DISPATCH UPDATE: Ensure UI knows about restored items!
+    window.dispatchEvent(new CustomEvent("fullLoad_updated"));
   }
 
   // API: setGhostMeta(mercadoria)
@@ -1418,7 +1483,7 @@ export function initFullLoadEngine(container, initialBau = null) {
       // Apply result
       clearScene(true); // Clear but don't save to history (already saved at line 1374)
 
-      result.placed.forEach(p => {
+      result.placed.forEach((p, idx) => {
         // Safety Check: Verify bounds
         const halfL = p.scale[0] / 2;
         const halfH = p.scale[1] / 2;
@@ -1438,7 +1503,15 @@ export function initFullLoadEngine(container, initialBau = null) {
         const rot = new THREE.Euler(p.rotation[0], p.rotation[1], p.rotation[2]);
         // Pass explicit size from optimizer result (p.scale is [l, h, w] which maps to [x, y, z])
         const size = { x: p.scale[0], y: p.scale[1], z: p.scale[2] };
-        placeItemInternal(pos, rot, p.meta, p.id, size);
+        // Generate a FRESH unique ID for the optimized placement to avoid any collision
+        const newId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `opt_${Date.now()}_${idx}`;
+
+        const entry = placeItemInternal(pos, rot, p.meta, newId, size);
+        if (!entry) {
+          console.error("❌ Otimizador: Falha ao recolocar item na cena:", p.id, p);
+        } else {
+          // console.log("✅ Item recolocado:", idx);
+        }
       });
 
       // Notify success

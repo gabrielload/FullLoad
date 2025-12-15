@@ -19,43 +19,39 @@ export default function ListModal({ onClose, items }) {
                         </div>
                     ) : (
                         <div className="space-y-3">
-                            {/* Group items by type */}
+                            {/* Group items by NAME (not just type) */}
                             {(() => {
                                 const grouped = {};
                                 items.forEach(item => {
                                     const tipo = item.tipo || item.meta?.tipo || 'caixa';
-                                    if (!grouped[tipo]) {
-                                        grouped[tipo] = { count: 0, weight: 0 };
+                                    const name = item.meta?.nome || tipo; // Group by Name
+
+                                    if (!grouped[name]) {
+                                        grouped[name] = { count: 0, weight: 0, tipo: tipo };
                                     }
-                                    grouped[tipo].count++;
-                                    grouped[tipo].weight += Number(item.meta?.peso || 0);
+                                    grouped[name].count++;
+                                    grouped[name].weight += Number(item.meta?.peso || 0);
                                 });
 
-                                const typeLabels = {
-                                    'caixa': 'CAIXA',
-                                    'cilindrico': 'CILINDRO',
-                                    'pneu': 'PNEU'
-                                };
-
-                                return Object.entries(grouped).map(([tipo, data]) => (
+                                return Object.entries(grouped).map(([name, data]) => (
                                     <div
-                                        key={tipo}
+                                        key={name}
                                         className="bg-gradient-to-r from-slate-50 to-white p-4 rounded-xl border border-slate-200 hover:border-orange-300 hover:shadow-md transition-all"
                                     >
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-3">
-                                                {/* Icon based on type */}
-                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${tipo === 'caixa' ? 'bg-orange-100 text-orange-600' :
-                                                    tipo === 'cilindrico' ? 'bg-blue-100 text-blue-600' :
+                                                {/* Icon based on underlying type */}
+                                                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${data.tipo === 'caixa' ? 'bg-orange-100 text-orange-600' :
+                                                    data.tipo === 'cilindrico' ? 'bg-blue-100 text-blue-600' :
                                                         'bg-purple-100 text-purple-600'
                                                     }`}>
                                                     <Box className="w-5 h-5" />
                                                 </div>
 
-                                                {/* Type and count */}
+                                                {/* Name and count (Standardized Format) */}
                                                 <div>
-                                                    <h4 className="font-bold text-slate-900 text-base">
-                                                        {typeLabels[tipo] || tipo.toUpperCase()} - {data.count} {data.count === 1 ? 'ITEM' : 'ITENS'}
+                                                    <h4 className="font-bold text-slate-900 text-base uppercase">
+                                                        {name} – {data.count} {data.count === 1 ? 'ITEM' : 'ITENS'}
                                                     </h4>
                                                     <p className="text-xs text-slate-500 mt-0.5">
                                                         Peso total: <span className="font-semibold text-slate-700">{data.weight.toFixed(1)} kg</span>
@@ -64,8 +60,8 @@ export default function ListModal({ onClose, items }) {
                                             </div>
 
                                             {/* Count badge */}
-                                            <div className={`px-3 py-1.5 rounded-full font-bold text-sm ${tipo === 'caixa' ? 'bg-orange-500 text-white' :
-                                                tipo === 'cilindrico' ? 'bg-blue-500 text-white' :
+                                            <div className={`px-3 py-1.5 rounded-full font-bold text-sm ${data.tipo === 'caixa' ? 'bg-orange-500 text-white' :
+                                                data.tipo === 'cilindrico' ? 'bg-blue-500 text-white' :
                                                     'bg-purple-500 text-white'
                                                 }`}>
                                                 {data.count}

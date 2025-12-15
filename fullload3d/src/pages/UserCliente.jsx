@@ -40,6 +40,7 @@ import {
 export default function Usuarios() {
   const empresaId = localStorage.getItem("empresaId");
   const userCargo = localStorage.getItem("userCargo");
+  const userRole = localStorage.getItem("role");
   const maxUsuarios = 5;
 
   const [usuarios, setUsuarios] = useState([]);
@@ -272,7 +273,7 @@ export default function Usuarios() {
           </div>
 
           <div className="flex gap-3">
-            {userCargo === "Administrador" && (
+            {(userCargo === "Administrador" || userRole === "admin") && (
               <>
                 <button
                   onClick={() => setOpenModal(true)}
@@ -305,7 +306,7 @@ export default function Usuarios() {
         )}
 
         {/* Table */}
-        {userCargo !== "Administrador" ? (
+        {userCargo !== "Administrador" && userRole !== "admin" ? (
           <div className="bg-white rounded-2xl shadow-lg p-10 text-center border border-slate-100">
             <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-4">
               <Shield className="w-10 h-10 text-red-500" />

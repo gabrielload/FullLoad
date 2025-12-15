@@ -210,19 +210,18 @@ export default function ClientLayout({ children }) {
       >
         <div className="h-20 flex items-center justify-center border-b border-slate-800/50">
           <div className={`flex items-center gap-3 transition-all duration-300 ${!isSidebarOpen && "justify-center"}`}>
-            <div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-600/20 flex-shrink-0">
-              {logoEmpresa && logoEmpresa !== "/logo.png" ? (
-                <img src={logoEmpresa} alt="Logo" className="w-6 h-6 object-contain invert brightness-0" />
+            <div className={`flex items-center gap-3 transition-all duration-300 ${!isSidebarOpen && "justify-center"}`}>
+              {isSidebarOpen ? (
+                <div className="flex flex-col">
+                  <img src="/logo-orange.png" alt="FullLoad 3D" className="h-12 w-auto object-contain" />
+                  {/* Optional: Show company name subtly below if needed, or remove */}
+                </div>
               ) : (
-                <span className="text-white font-bold">FL</span>
+                <div className="w-10 h-10 bg-orange-600 rounded-xl flex items-center justify-center shadow-lg shadow-orange-600/20 p-2">
+                  <img src="/logo-icon.png" alt="FL" className="w-full h-full object-contain invert brightness-0" />
+                </div>
               )}
             </div>
-            {isSidebarOpen && (
-              <div className="overflow-hidden">
-                <h1 className="font-bold text-white text-lg leading-none tracking-tight">FullLoad<span className="text-orange-500">3D</span></h1>
-                <p className="text-[10px] text-slate-400 font-medium uppercase tracking-wider mt-0.5">{nomeEmpresa}</p>
-              </div>
-            )}
           </div>
           <button
             onClick={toggleSidebar}
@@ -302,6 +301,16 @@ export default function ClientLayout({ children }) {
 
 
           </div>
+
+          {/* Nome da Empresa */}
+          {nomeEmpresa && (
+            <div className="absolute left-1/2 transform -translate-x-1/2 md:static md:transform-none md:ml-4 flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center text-orange-700 font-bold text-sm">
+                {nomeEmpresa[0].toUpperCase()}
+              </div>
+              <span className="text-lg font-bold text-slate-800 hidden md:block">{nomeEmpresa}</span>
+            </div>
+          )}
 
           <div className="flex items-center gap-4">
             {/* Notifications Dropdown */}

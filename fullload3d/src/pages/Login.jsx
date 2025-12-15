@@ -93,9 +93,7 @@ export default function Login() {
 
         <div className="relative z-10 max-w-lg">
           <div className="mb-12">
-            <div className="w-32 h-32 bg-orange-500 rounded-2xl flex items-center justify-center mb-6 shadow-lg shadow-orange-500/30">
-              <img src="/logo.png" className="w-20 h-20 invert brightness-0" alt="Logo" />
-            </div>
+            <img src="/logo-orange.png" className="w-64 h-auto mb-8 object-contain drop-shadow-2xl" alt="FullLoad" />
             <h1 className="text-6xl font-bold mb-6 tracking-tight leading-tight">
               Logística <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-orange-200">
@@ -124,6 +122,7 @@ export default function Login() {
       <div className="w-full lg:w-1/2 flex items-center justify-center p-8 lg:p-24 bg-white">
         <div className="w-full max-w-md space-y-10">
           <div className="text-center lg:text-left">
+            <img src="/logo-black.png" alt="FullLoad" className="h-12 w-auto mb-8 mx-auto lg:mx-0" />
             <h2 className="text-4xl font-bold text-slate-900 tracking-tight">Bem-vindo</h2>
             <p className="mt-3 text-slate-500 text-lg">Entre com suas credenciais para acessar.</p>
           </div>
