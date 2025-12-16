@@ -103,10 +103,28 @@ export default function FullLoad3D() {
       setGhostObject(e.detail);
     };
 
-    const handleAddMercadoria = (e) => {
-      console.log("📥 Inserindo mercadoria:", e.detail);
+    const handleAddMercadoria = async (e) => {
+      console.log("📥 Inserindo mercadoria (Async Batch):", e.detail);
       const { mercadoria, quantidade } = e.detail;
-      addMercadoriaAuto(mercadoria, quantidade);
+
+      // START LOADING
+      setIsOptimizing(true); // Reusing existing optimizing spinner for now
+
+      try {
+        const generator = addMercadoriaAuto(mercadoria, quantidade);
+        for await (const step of generator) {
+          if (step.type === 'progress') {
+            // Optional: Update a progress state if we had one. 
+            // For now just keep the spinner spinning.
+            // console.log(`Progress: ${step.current}/${step.total}`);
+          }
+        }
+      } catch (err) {
+        console.error("Erro ao adicionar lote:", err);
+        setErrorToast("Erro ao adicionar itens.");
+      } finally {
+        setIsOptimizing(false);
+      }
     };
 
     const handleError = (e) => {
@@ -187,7 +205,6 @@ export default function FullLoad3D() {
   // ============================
   //   AUTO-SAVE & AUTO-RESTORE
   // ============================
-  // Auto-restore from localStorage on mount
   // Auto-restore from localStorage on mount (ONLY if NOT loading a specific plan)
   useEffect(() => {
     if (!isEngineReady) return;
@@ -203,30 +220,40 @@ export default function FullLoad3D() {
       const savedItems = localStorage.getItem("fullload_autosave_items");
 
       if (savedBau) {
-        let bau = JSON.parse(savedBau);
-        console.log("🔄 Restaurando baú do autosave:", bau);
+        try {
+          let bau = JSON.parse(savedBau);
+          console.log("🔄 Restaurando baú do autosave:", bau);
 
-        // CORRECTION: Auto-save stores METERS, but setBauDimensions expects CM.
-        // Heuristic: If L is small (< 100), it's likely meters.
-        const boxL = Number(bau.L);
-        const boxH = Number(bau.H);
-        const boxW = Number(bau.W);
+          // CORRECTION: Auto-save stores METERS, but setBauDimensions expects CM.
+          // Heuristic: If L is small (< 100), it's likely meters.
+          const boxL = Number(bau.L);
+          const boxH = Number(bau.H);
+          const boxW = Number(bau.W);
 
-        const isMeters = boxL < 50; // 50m is a huge truck, so < 50 is safely meters
-        const factor = isMeters ? 100 : 1;
+          const isMeters = boxL < 50; // 50m is a huge truck, so < 50 is safely meters
+          const factor = isMeters ? 100 : 1;
 
-        setBauDimensions(boxL * factor, boxH * factor, boxW * factor);
+          setBauDimensions(boxL * factor, boxH * factor, boxW * factor);
+        } catch (e) {
+          console.error("Erro ao analisar baú salvo:", e);
+        }
       }
 
       if (savedItems) {
-        const items = JSON.parse(savedItems);
-        console.log("🔄 Restaurando itens do autosave:", items.length, "itens");
-        setTimeout(() => {
-          setItems(items);
-        }, 500); // Small delay to ensure bau is loaded first
+        try {
+          const items = JSON.parse(savedItems);
+          if (Array.isArray(items) && items.length > 0) {
+            console.log("🔄 Restaurando itens do autosave:", items.length, "itens");
+            setTimeout(() => {
+              setItems(items);
+            }, 500); // Small delay to ensure bau is loaded first
+          }
+        } catch (e) {
+          console.error("Erro ao analisar itens salvos:", e);
+        }
       }
     } catch (err) {
-      console.error("Erro ao restaurar autosave:", err);
+      console.error("Erro global ao restaurar autosave:", err);
     }
   }, [isEngineReady, planId]);
 
@@ -235,6 +262,13 @@ export default function FullLoad3D() {
     if (!isEngineReady) return;
 
     const handleAutoSave = () => {
+      // 1. CRITICAL FIX: DO NOT AUTOSAVE if we are viewing a saved plan (History)
+      // This prevents the "New Plan" draft from being overwritten by an old plan you just viewed.
+      if (planId) {
+        // console.log("🚫 Autosave bloqueado: Visualizando plano salvo.");
+        return;
+      }
+
       try {
         const items = getPlacedItems();
         const bau = getBauState();
@@ -246,12 +280,13 @@ export default function FullLoad3D() {
         if (items && items.length > 0) {
           localStorage.setItem("fullload_autosave_items", JSON.stringify(items));
         } else {
+          // If empty, clear autosave items (so it stays empty on reload)
           localStorage.removeItem("fullload_autosave_items");
         }
 
-        console.log("💾 Autosave:", items.length, "itens");
+        console.log("💾 Autosave (Draft):", items.length, "itens");
         setSaveStatus("saved");
-        setTimeout(() => setSaveStatus("idle"), 3000);
+        setTimeout(() => setSaveStatus("idle"), 2000);
       } catch (err) {
         console.error("Erro ao salvar autosave:", err);
         setSaveStatus("error");
@@ -260,9 +295,12 @@ export default function FullLoad3D() {
 
     // Listen to updates and save
     const handleUpdateAndSave = () => {
+      if (planId) return; // Don't even show "saving..."
+
       setSaveStatus("saving");
-      // Debounce slightly to show "Saving..."
-      setTimeout(handleAutoSave, 500);
+      // 2. OPTIMIZATION: Reduce debounce from 500ms to 200ms
+      // This reduces the chance of "F5 losing data" if refreshed quickly after an action.
+      setTimeout(handleAutoSave, 200);
     };
 
     window.addEventListener("fullLoad_updated", handleUpdateAndSave);
@@ -270,7 +308,7 @@ export default function FullLoad3D() {
     return () => {
       window.removeEventListener("fullLoad_updated", handleUpdateAndSave);
     };
-  }, [isEngineReady]);
+  }, [isEngineReady, planId]);
 
 
   // Keyboard Shortcuts for Undo/Redo
@@ -297,11 +335,13 @@ export default function FullLoad3D() {
   //   ACTIONS
   // =============================
   const handleNewPlan = () => {
+    console.log("🛠️ handleNewPlan clicked!");
     setConfirmModal({
       show: true,
       title: "Novo Plano",
       message: "Deseja limpar todo o plano de carga? Esta ação não pode ser desfeita.",
       onConfirm: () => {
+        console.log("🛠️ Confirming New Plan...");
         clearScene();
         // Clear autosave
         localStorage.removeItem("fullload_autosave_bau");

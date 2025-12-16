@@ -15,9 +15,12 @@ import {
   tightPack,
   supportTopAt,
   computeStackY,
-  createTextSprite
+  createTextSprite,
+  filterHiddenItems,
+  SpatialHash
 } from "./fullLoadUtils";
 import { optimize } from "./fullLoadOptimizer";
+import { InstancedRenderer } from "./instancedRenderer.jsx";
 
 /*
   fullLoadEngine.js
@@ -35,7 +38,10 @@ let mouse = null;
 let placed = new Map(); // id -> { mesh, data, aabb }
 let rafId = null;
 let running = false;
+const INSTANCE_THRESHOLD = 200; // Automatic switch to InstancedMesh
 let _engineAPI = null; // module-level pointer
+let instancedRenderer = null; // High-Performance Renderer
+let currentOperationId = 0; // Epoch for async tasks (abort validation)
 
 // Undo/Redo Stacks
 const historyStack = [];
@@ -143,6 +149,10 @@ export function initFullLoadEngine(container, initialBau = null) {
   scene = new THREE.Scene();
   // scene.background = new THREE.Color(0xffffff); // Removed to allow CSS gradient
   scene.background = null;
+
+  // Initialize Instanced Renderer
+  instancedRenderer = new InstancedRenderer(scene);
+  instancedRenderer.init();
 
   // Isometric-ish camera setup
   camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 100);
@@ -485,15 +495,40 @@ export function initFullLoadEngine(container, initialBau = null) {
     window.dispatchEvent(new CustomEvent("fullLoad_itemDeselected"));
   }
 
-  function clearScene() {
-    saveState(); // Save before clearing
+  function clearScene(clearHistory = true) {
+    // 1. Invalidate any running async operations
+    currentOperationId++;
+    const opId = currentOperationId;
+
+    if (clearHistory) {
+      saveState(); // Save BEFORE clearing only if requested
+    }
+
+    // 2. Clear visual meshes
     Array.from(placed.values()).forEach((p) => {
-      scene.remove(p.mesh);
-      if (p.mesh.geometry) p.mesh.geometry.dispose();
+      if (p.mesh && p.mesh.parent === scene) {
+        scene.remove(p.mesh);
+      }
+      if (p.mesh && p.mesh.geometry) p.mesh.geometry.dispose();
     });
+
+    // 3. Clear Instanced Renderer
+    if (instancedRenderer) {
+      instancedRenderer.update([]); // Empty the buffer
+    }
+
+    // 4. Reset Data
     placed.clear();
-    window.dispatchEvent(new CustomEvent("fullLoad_updated"));
-    window.dispatchEvent(new CustomEvent("fullLoad_itemDeselected"));
+
+    // 5. Force UI Update immediately
+    // Use setTimeout to ensure React processes this event separately from the click
+    setTimeout(() => {
+      // Double check opId to ensure no race condition reverted this
+      if (currentOperationId === opId) {
+        window.dispatchEvent(new CustomEvent("fullLoad_updated"));
+        window.dispatchEvent(new CustomEvent("fullLoad_itemDeselected"));
+      }
+    }, 0);
   }
 
   function onClick(e) {
@@ -1047,27 +1082,12 @@ export function initFullLoadEngine(container, initialBau = null) {
     controls.update();
   }
 
-  // API: setItems(items) - reconstruct placed items
-  // items = [{ id, position: [x,y,z], rotation: [rx,ry,rz], scale: [sx,sy,sz], tipo, meta }]
+  // API: setItems(items) - reconstruct placed items or use instancing
   function setItems(items = []) {
     console.log("🔄 Engine: setItems called with", items.length, "items");
 
-    // Track seen IDs to prevent collisions (fixes corrupted plans)
+    // Track seen IDs to prevent collisions
     const seenIds = new Set();
-
-    // remove those not present in the new list (by ID)
-    // Note: If input IDs were missing/duplicate, this logic might have been flawed.
-    // But for now, let's just clear if we are doing a full set.
-    // Actually, setItems is usually called to REPLACE everything.
-    // But the original logic tries to be smart.
-    // Let's stick to the smart logic but be careful.
-
-    // If we are recovering from bad data, the IDs in 'items' might be garbage.
-    // So we might want to just clearScene if it's a full load.
-    // But setItems is also used for updates?
-    // The current usage in FullLoad3d.jsx is for loading a plan.
-
-    // Let's generate a clean list of items with unique IDs first
     const cleanItems = items.map(item => {
       let id = item.id;
       if (!id || seenIds.has(id)) {
@@ -1077,11 +1097,59 @@ export function initFullLoadEngine(container, initialBau = null) {
       return { ...item, id };
     });
 
+    const useInstancing = cleanItems.length > INSTANCE_THRESHOLD;
+
+    // --- INSTANCED RENDERING SWITCH ---
+    if (useInstancing) {
+      console.log("🚀 High Performance Mode: Switching to Instanced Rendering");
+
+      // 1. Clear individual meshes from the scene
+      for (const [key, val] of Array.from(placed.entries())) {
+        if (val.mesh && val.mesh.parent === scene) {
+          scene.remove(val.mesh);
+        }
+      }
+
+      // 2. Update Instanced Renderer with SMART CULLING
+      // "os que não mostram não sejam renderizados mas contados"
+
+      const renderItems = filterHiddenItems(cleanItems, bauInnerBox);
+      console.log(`🧠 Smart Culling: Visíveis ${renderItems.length} / Total ${cleanItems.length}`);
+
+      const renderData = renderItems.map(item => ({
+        position: item.position,
+        rotation: item.rotation,
+        scale: item.scale,
+        type: item.tipo || item.meta?.tipo || "caixa",
+        color: item.meta?.cor || item.meta?.color,
+        meta: item.meta
+      }));
+      instancedRenderer.update(renderData);
+
+      // 3. Ensure instanced meshes are visible
+      instancedRenderer.meshes.box.visible = true;
+      instancedRenderer.meshes.cylinder.visible = true;
+      instancedRenderer.meshes.tire.visible = true;
+
+    } else {
+      // --- DETAILED MODE ---
+      // Disable Instanced Renderer
+      if (instancedRenderer) {
+        instancedRenderer.update([]); // Clear instanced items
+        instancedRenderer.meshes.box.visible = false;
+        instancedRenderer.meshes.cylinder.visible = false;
+        instancedRenderer.meshes.tire.visible = false;
+      }
+    }
+
+    // Standard Logic (Populate 'placed' map)
     const incomingIds = new Set(cleanItems.map((i) => i.id));
     for (const key of Array.from(placed.keys())) {
       if (!incomingIds.has(key)) {
         const e = placed.get(key);
-        try { scene.remove(e.mesh); } catch { }
+        if (e.mesh && e.mesh.parent === scene) {
+          try { scene.remove(e.mesh); } catch { }
+        }
         placed.delete(key);
       }
     }
@@ -1095,6 +1163,13 @@ export function initFullLoadEngine(container, initialBau = null) {
         if (data.rotation) entry.mesh.rotation.set(data.rotation[0], data.rotation[1], data.rotation[2]);
         entry.data = data;
         entry.aabb = makeAABBForSizeAt({ x: data.scale[0], y: data.scale[1], z: data.scale[2] }, entry.mesh.position);
+
+        // Visibility toggle for individual meshes
+        if (useInstancing) {
+          if (entry.mesh.parent === scene) scene.remove(entry.mesh);
+        } else {
+          if (entry.mesh.parent !== scene) scene.add(entry.mesh);
+        }
         continue;
       }
 
@@ -1111,14 +1186,6 @@ export function initFullLoadEngine(container, initialBau = null) {
           const radius = cmToM((data.meta?.largura || data.largura || 60) / 2);
           const width = cmToM(data.meta?.comprimento || data.comprimento || 20);
           mesh = createTireMesh({ radius, width, color: data.meta?.color || "#111" });
-          // Tire size: X=Width (thickness), Y=Diameter, Z=Diameter (when rotated on side)
-          // But createTireMesh rotates it. 
-          // Let's standardise: Pneu usually stands up or lies down.
-          // If lying down (default createTireMesh): Height is width. Diameter is X/Z.
-          // createTireMesh rotates Z 90deg. So axis is X.
-          // Wait, createTireMesh in utils: geometry.rotateZ(Math.PI / 2).
-          // Cylinder default is Y-up. Rotate Z 90 -> X-up.
-          // So width is along X. Radius is Y/Z.
           const diameter = radius * 2;
           mesh.userData._size = { x: width, y: diameter, z: diameter };
         } else {
@@ -1139,14 +1206,17 @@ export function initFullLoadEngine(container, initialBau = null) {
         const box = new THREE.Box3().setFromObject(mesh);
         const aabb = { min: box.min, max: box.max };
 
-        scene.add(mesh);
+        // THE FIX: Only add to scene if NOT using instancing
+        if (!useInstancing) {
+          scene.add(mesh);
+        }
+
         placed.set(id, { mesh, data, aabb });
       } catch (err) {
         console.error("Erro ao reconstruir item setItems:", err, data);
       }
     }
 
-    // DISPATCH UPDATE: Ensure UI knows about restored items!
     window.dispatchEvent(new CustomEvent("fullLoad_updated"));
   }
 
@@ -1288,45 +1358,41 @@ export function initFullLoadEngine(container, initialBau = null) {
     return false;
   }
 
-  // Helper: Calculate support from below
-  function supportTopAt(candidateAABB, existingItems) {
-    let topY = 0;
-    const cx = (candidateAABB.min.x + candidateAABB.max.x) / 2;
-    const cz = (candidateAABB.min.z + candidateAABB.max.z) / 2;
-    const dx = candidateAABB.max.x - candidateAABB.min.x;
-    const dz = candidateAABB.max.z - candidateAABB.min.z;
 
-    for (const item of existingItems) {
-      // Check if item is below candidate
-      if (item.aabb.max.y <= candidateAABB.min.y + 0.001) {
-        // Check horizontal overlap
-        const ixMin = Math.max(candidateAABB.min.x, item.aabb.min.x);
-        const ixMax = Math.min(candidateAABB.max.x, item.aabb.max.x);
-        const izMin = Math.max(candidateAABB.min.z, item.aabb.min.z);
-        const izMax = Math.min(candidateAABB.max.z, item.aabb.max.z);
 
-        if (ixMax > ixMin && izMax > izMin) {
-          // Overlap exists
-          topY = Math.max(topY, item.aabb.max.y);
-        }
-      }
-    }
-    return topY;
-  }
-
-  function addMercadoriaAuto(mercadoria, quantidade = 1) {
+  async function* addMercadoriaAuto(mercadoria, quantidade = 1) {
     if (!bauInnerBox) {
       console.warn("addMercadoriaAuto: bau ainda não foi definido.");
       return [];
     }
+
+    // Capture Operation ID
+    const opId = currentOperationId;
+
     saveState();
 
     const placedResults = [];
-    let existingItems = Array.from(placed.values());
 
-    for (let i = 0; i < quantidade; i++) {
-      const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `auto_${Date.now()}_${i}`;
+    try {
+      let existingItems = Array.from(placed.values());
 
+      // OPTIMIZATION: Prepare Spatial Hash & Candidates ONCE (O(M))
+      if (opId !== currentOperationId) return; // Abort
+      const spatialHash = new SpatialHash(0.5);
+      existingItems.forEach(item => spatialHash.insert(item.aabb, item));
+
+      // Initial Candidates
+      let xCands = new Set([0]);
+      let yCands = new Set([0]);
+      let zCands = new Set([0]);
+
+      for (const item of existingItems) {
+        if (item.aabb.max.x < bauInnerBox.max.x) xCands.add(item.aabb.max.x);
+        if (item.aabb.max.y < bauInnerBox.max.y) yCands.add(item.aabb.max.y);
+        if (item.aabb.max.z < bauInnerBox.max.z) zCands.add(item.aabb.max.z);
+      }
+
+      // Pre-calc dimensions once
       const dimL = cmToM(mercadoria.comprimento || mercadoria.L || 50);
       const dimH = cmToM(mercadoria.altura || mercadoria.H || 50);
       const dimW = cmToM(mercadoria.largura || mercadoria.W || 50);
@@ -1346,96 +1412,142 @@ export function initFullLoadEngine(container, initialBau = null) {
         if (allowedRotations.length === 0) allowedRotations = allRotations;
       }
 
-      // Generate Candidate Points
-      let xCands = new Set([0]);
-      let yCands = new Set([0]);
-      let zCands = new Set([0]);
+      // MAIN LOOP (O(Q))
+      const BATCH_SIZE = 50;
 
-      for (const item of existingItems) {
-        if (item.aabb.max.x < bauInnerBox.max.x) xCands.add(item.aabb.max.x);
-        if (item.aabb.max.y < bauInnerBox.max.y) yCands.add(item.aabb.max.y);
-        if (item.aabb.max.z < bauInnerBox.max.z) zCands.add(item.aabb.max.z);
-      }
+      for (let i = 0; i < quantidade; i++) {
+        // Yield Control & Progress update
+        if (i % BATCH_SIZE === 0) {
+          if (opId !== currentOperationId) {
+            console.log("Async Add Aborted");
+            return;
+          }
+          await new Promise(resolve => setTimeout(resolve, 0)); // Yield to UI
+          yield { type: 'progress', current: i, total: quantidade };
+        }
 
-      const sortedX = Array.from(xCands).sort((a, b) => a - b);
-      const sortedY = Array.from(yCands).sort((a, b) => a - b);
-      const sortedZ = Array.from(zCands).sort((a, b) => a - b);
+        const colocId = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `auto_${Date.now()}_${i}`;
 
-      let bestFit = null;
+        // Sort candidates (Optimization: simple sort is fast for small sets, or we could maintain sorted order)
+        const sortedX = Array.from(xCands).sort((a, b) => a - b);
+        const sortedY = Array.from(yCands).sort((a, b) => a - b);
+        const sortedZ = Array.from(zCands).sort((a, b) => a - b);
 
-      searchLoop:
-      for (const x of sortedX) {
-        for (const y of sortedY) {
-          for (const z of sortedZ) {
-            let bestRotForPos = null;
+        let bestFit = null;
 
-            for (const config of allowedRotations) {
-              const dims = config.dims;
-              const posX = x;
-              const posY = y;
-              const posZ = z;
+        searchLoop:
+        for (const x of sortedX) {
+          for (const y of sortedY) {
+            for (const z of sortedZ) {
+              let bestRotForPos = null;
 
-              const candidateAABB = {
-                min: { x: posX, y: posY, z: posZ },
-                max: { x: posX + dims.x, y: posY + dims.y, z: posZ + dims.z }
-              };
+              for (const config of allowedRotations) {
+                const dims = config.dims;
+                const posX = x;
+                const posY = y;
+                const posZ = z;
 
-              if (!wouldCollide(candidateAABB, existingItems)) {
-                const supportY = supportTopAt(candidateAABB, existingItems);
-                if (Math.abs(posY - supportY) > 0.001) continue;
+                const candidateAABB = {
+                  min: { x: posX, y: posY, z: posZ },
+                  max: { x: posX + dims.x, y: posY + dims.y, z: posZ + dims.z }
+                };
 
-                const footprint = dims.x * dims.z;
-                if (!bestRotForPos || footprint > bestRotForPos.footprint) {
-                  bestRotForPos = {
-                    position: { x: posX, y: posY, z: posZ },
-                    dims: dims,
-                    rotation: config,
-                    footprint: footprint
-                  };
+                // Fast Collision Check using Spatial Hash
+                let collision = false;
+                // Check bounds first
+                if (candidateAABB.min.x < 0 || candidateAABB.min.y < 0 || candidateAABB.min.z < 0 ||
+                  candidateAABB.max.x > bauInnerBox.max.x ||
+                  candidateAABB.max.y > bauInnerBox.max.y ||
+                  candidateAABB.max.z > bauInnerBox.max.z) {
+                  collision = true;
+                } else {
+                  // Query grid
+                  const neighbors = spatialHash.query(candidateAABB);
+                  for (const neighbor of neighbors) {
+                    if (boxesOverlap(candidateAABB, neighbor.aabb)) {
+                      collision = true;
+                      break;
+                    }
+                  }
+                }
+
+                if (!collision) {
+                  // Neighbors for support
+                  const neighbors = spatialHash.query(candidateAABB);
+
+                  // supportTopAt O(Neighbors) - Very fast
+                  const supportY = supportTopAt(
+                    posX + dims.x / 2,
+                    posZ + dims.z / 2,
+                    dims.x,
+                    dims.z,
+                    Array.from(neighbors)
+                  );
+
+                  if (Math.abs(posY - supportY) > 0.001) continue;
+
+                  const footprint = dims.x * dims.z;
+                  if (!bestRotForPos || footprint > bestRotForPos.footprint) {
+                    bestRotForPos = {
+                      position: { x: posX, y: posY, z: posZ },
+                      dims: dims,
+                      rotation: config,
+                      footprint: footprint
+                    };
+                  }
                 }
               }
-            }
 
-            if (bestRotForPos) {
-              bestFit = bestRotForPos;
-              break searchLoop;
+              if (bestRotForPos) {
+                bestFit = bestRotForPos;
+                break searchLoop;
+              }
             }
           }
         }
-      }
 
-      if (bestFit) {
-        const meta = { ...mercadoria, cor: mercadoria.cor || mercadoria.color || "#ff7a18" };
+        if (bestFit) {
+          const meta = { ...mercadoria, cor: mercadoria.cor || mercadoria.color || "#ff7a18" };
+          const centerX = bestFit.position.x + bestFit.dims.x / 2;
+          const centerY = bestFit.position.y + bestFit.dims.y / 2;
+          const centerZ = bestFit.position.z + bestFit.dims.z / 2;
 
-        // Calculate Center Position (placeItemInternal expects center)
-        // bestFit.position is the corner (minX, minY, minZ)
-        const centerX = bestFit.position.x + bestFit.dims.x / 2;
-        const centerY = bestFit.position.y + bestFit.dims.y / 2;
-        const centerZ = bestFit.position.z + bestFit.dims.z / 2;
+          const entry = placeItemInternal(
+            new THREE.Vector3(centerX, centerY, centerZ),
+            new THREE.Euler(bestFit.rotation.rot[0], bestFit.rotation.rot[1], bestFit.rotation.rot[2]),
+            meta,
+            colocId,
+            bestFit.dims
+          );
 
-        const entry = placeItemInternal(
-          new THREE.Vector3(centerX, centerY, centerZ),
-          new THREE.Euler(bestFit.rotation.rot[0], bestFit.rotation.rot[1], bestFit.rotation.rot[2]),
-          meta,
-          colocId,
-          bestFit.dims // Pass explicit size!
-        );
+          if (entry) {
+            placedResults.push(entry);
+            existingItems.push(entry);
 
-        if (entry) {
-          placedResults.push(entry);
-          existingItems.push(entry);
+            // DYNAMIC UPDATE (O(1))
+            spatialHash.insert(entry.aabb, entry);
+            if (entry.aabb.max.x < bauInnerBox.max.x) xCands.add(entry.aabb.max.x);
+            if (entry.aabb.max.y < bauInnerBox.max.y) yCands.add(entry.aabb.max.y);
+            if (entry.aabb.max.z < bauInnerBox.max.z) zCands.add(entry.aabb.max.z);
+
+          } else {
+            console.warn("Item rejected by engine (Hard Block):", mercadoria.nome);
+          }
         } else {
-          console.warn("Item rejected by engine (Hard Block):", mercadoria.nome);
+          console.warn("Não foi possível encaixar item auto:", mercadoria.nome);
         }
-      } else {
-        console.warn("Não foi possível encaixar item auto:", mercadoria.nome);
       }
+    } catch (err) {
+      console.error("CRITICAL ERROR in addMercadoriaAuto:", err);
     }
-    return placedResults;
+
+    yield { type: 'complete', result: placedResults };
   }
 
   async function optimizeLoad() {
     console.log("Otimizando carga (Regra de Ouro)...");
+
+    const opId = currentOperationId;
     saveState();
 
     if (!bauInnerBox) {
@@ -1481,7 +1593,11 @@ export function initFullLoadEngine(container, initialBau = null) {
       console.log("📊 Depois da otimização:", result.placed.length, "itens");
 
       // Apply result
-      clearScene(true); // Clear but don't save to history (already saved at line 1374)
+      if (opId !== currentOperationId) {
+        console.warn("⚠️ Otimização descartada (Cena foi limpa ou alterada durante o calculo)");
+        return;
+      }
+      clearScene(false); // Clear WITHOUT saving (we already saved start state)
 
       result.placed.forEach((p, idx) => {
         // Safety Check: Verify bounds
@@ -1634,6 +1750,12 @@ export function initFullLoadEngine(container, initialBau = null) {
 
       renderer.domElement.removeEventListener("webglcontextlost", onContextLost);
       renderer.domElement.removeEventListener("webglcontextrestored", onContextRestored);
+
+      if (instancedRenderer) {
+        instancedRenderer.cleanup();
+        instancedRenderer = null;
+      }
+
       if (renderer) renderer.dispose();
       _engineAPI = null;
     }

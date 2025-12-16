@@ -136,7 +136,14 @@ export async function optimize(currentItems, truckDims) {
     const PADDING = 0.00; // 0cm padding to ensure strict inside. User said "limit on walls".
     // If we use 0, we rely on strict inequality.
 
+    let processedCount = 0;
+
     for (const item of itemsToPack) {
+        // Yield to main thread every 5 items to keep UI responsive
+        if (processedCount++ % 5 === 0) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
         let bestPos = null;
         let minCost = Infinity;
         let bestRot = null;

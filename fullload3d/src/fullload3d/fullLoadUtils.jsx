@@ -18,7 +18,7 @@ export function mToCm(m) {
 // Material cache for reuse
 const materialCache = new Map();
 
-function getMaterial(color) {
+export function getMaterial(color) {
   const key = color.toString();
   if (!materialCache.has(key)) {
     materialCache.set(key, new THREE.MeshStandardMaterial({
@@ -31,48 +31,70 @@ function getMaterial(color) {
   return materialCache.get(key);
 }
 
+// Shared Geometries (Singletons for Performance)
+const sharedBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
+const sharedBoxEdges = new THREE.EdgesGeometry(sharedBoxGeometry);
+
+// Cylinder: Radius 0.5 (Diameter 1), Height 1. Scale(D, H, D)
+const sharedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+const sharedCylinderEdges = new THREE.EdgesGeometry(sharedCylinderGeometry, 30);
+
+// Tire: Same as Cylinder but rotated Z 90deg to lie on side.
+// Warning: We must clone geometry if we rotate it, but we can do it once globally.
+const sharedTireGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+sharedTireGeometry.rotateZ(Math.PI / 2);
+const sharedTireEdges = new THREE.EdgesGeometry(sharedTireGeometry, 30);
+
 export function createBoxMesh(size, color) {
-  const geometry = new THREE.BoxGeometry(size[0], size[1], size[2]);
+  // Use shared geometry and scale it
   const material = getMaterial(color);
-  const mesh = new THREE.Mesh(geometry, material);
-  // Shadows disabled for performance
+  const mesh = new THREE.Mesh(sharedBoxGeometry, material);
+
+  // Apply size via scale
+  mesh.scale.set(size[0], size[1], size[2]);
+
   mesh.castShadow = false;
   mesh.receiveShadow = false;
 
-  // Add edges (outline) - restored per user request
-  const edges = new THREE.EdgesGeometry(geometry);
-  const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+  // Clone shared lines (LineSegments logic: geometry is shared, material is new)
+  const line = new THREE.LineSegments(sharedBoxEdges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+  // Line will inherit scale from parent mesh automagically!
   mesh.add(line);
 
   return mesh;
 }
 
 export function createCylinderMesh({ diameter, height, color }) {
-  // Reduced segments from 32 to 8 for 4x performance improvement
-  const geometry = new THREE.CylinderGeometry(diameter / 2, diameter / 2, height, 8);
   const material = getMaterial(color);
-  const mesh = new THREE.Mesh(geometry, material);
-  // Shadows disabled for performance
+  const mesh = new THREE.Mesh(sharedCylinderGeometry, material);
+
+  // Scale: X=Diameter, Y=Height, Z=Diameter
+  mesh.scale.set(diameter, height, diameter);
+
   mesh.castShadow = false;
   mesh.receiveShadow = false;
 
-  // Add edges (outline) - restored per user request
-  const edges = new THREE.EdgesGeometry(geometry, 30);
-  const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+  const line = new THREE.LineSegments(sharedCylinderEdges, new THREE.LineBasicMaterial({ color: 0x000000 }));
   mesh.add(line);
 
   return mesh;
 }
 
 export function createTireMesh({ radius, width, color }) {
-  // Reduced segments from 32 to 8 for performance
-  const geometry = new THREE.CylinderGeometry(radius, radius, width, 8);
-  geometry.rotateZ(Math.PI / 2); // Rotate to lie on side
   const material = getMaterial(color || 0x333333);
-  const mesh = new THREE.Mesh(geometry, material);
-  // Shadows disabled for performance
+  const mesh = new THREE.Mesh(sharedTireGeometry, material);
+
+  // Shared geometry is lying on X axis (height=width). Y/Z are Diameter.
+  // Scale X by Width. Scale Y/Z by Diameter (Radius * 2)
+  const diameter = radius * 2;
+  mesh.scale.set(width, diameter, diameter);
+
   mesh.castShadow = false;
   mesh.receiveShadow = false;
+
+  const line = new THREE.LineSegments(sharedTireEdges, new THREE.LineBasicMaterial({ color: 0x000000 }));
+  mesh.add(line);
+
   return mesh;
 }
 
@@ -269,6 +291,7 @@ export function supportTopAt(cx, cz, fx, fz, existingItems, excludeMesh = null) 
   return top;
 }
 
+// Cache-busting comment: Update 2024-12-16 - Fixed itemBelowMeta reference
 export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz, currentType = "caixa") {
   // 1. Floor check
   const floorY = fy / 2;
@@ -375,4 +398,127 @@ export function createTextSprite(text) {
   const sprite = new THREE.Sprite(material);
   sprite.scale.set(1, 0.5, 1);
   return sprite;
+}
+
+// ===========================
+// CULLING / OPTIMIZATION HELPERS
+// ===========================
+
+export function filterHiddenItems(items, bauDims) {
+  // If few items, don't bother culling (overhead > gain)
+  if (items.length < 50) return items;
+
+  // 1. Build Spatial Grid (Optimized for performance)
+  // We map block centers to existence.
+  // Key: "x,y,z" (rounded)
+  const grid = new Map();
+
+  // Helper to key
+  const getKey = (x, y, z) => `${Math.round(x * 10)},${Math.round(y * 10)},${Math.round(z * 10)}`;
+
+  // Populate grid with ALL items
+  items.forEach((item, idx) => {
+    // Center point
+    const cx = item.position[0];
+    const cy = item.position[1];
+    const cz = item.position[2];
+    grid.set(getKey(cx, cy, cz), { item, idx });
+  });
+
+  const visibleItems = [];
+
+  // 2. Check each item visibility
+  for (const item of items) {
+    const cx = item.position[0];
+    const cy = item.position[1];
+    const cz = item.position[2];
+
+    const sx = item.scale[0] || item.userData?._size?.x || 1;
+    const sy = item.scale[1] || item.userData?._size?.y || 1;
+    const sz = item.scale[2] || item.userData?._size?.z || 1;
+
+    // Check 6 Neighbors (using approximate grid lookups)
+    // We check points slightly offset by the dimension.
+    // NOTE: This assumes uniform packing.
+    const right = grid.has(getKey(cx + sx, cy, cz));
+    const left = grid.has(getKey(cx - sx, cy, cz));
+    const up = grid.has(getKey(cx, cy + sy, cz));
+    const down = grid.has(getKey(cx, cy - sy, cz)) || (cy - sy / 2 <= 0.05);
+    const front = grid.has(getKey(cx, cy, cz + sz));
+    const back = grid.has(getKey(cx, cy, cz - sz));
+
+    // If completely surrounded (hidden on all 6 sides), don't render
+    if (right && left && up && down && front && back) {
+      continue;
+    }
+    visibleItems.push(item);
+  }
+
+  return visibleItems;
+}
+
+// ===========================
+// SPATIAL HASHING (Fast Collision)
+// ===========================
+
+export class SpatialHash {
+  constructor(cellSize = 0.5) { // 50cm cells
+    this.cellSize = cellSize;
+    this.map = new Map();
+  }
+
+  _getKey(x, y, z) {
+    return `${Math.floor(x / this.cellSize)},${Math.floor(y / this.cellSize)},${Math.floor(z / this.cellSize)}`;
+  }
+
+  insert(aabb, item) {
+    const startX = Math.floor(aabb.min.x / this.cellSize);
+    const endX = Math.floor(aabb.max.x / this.cellSize);
+    const startY = Math.floor(aabb.min.y / this.cellSize);
+    const endY = Math.floor(aabb.max.y / this.cellSize);
+    const startZ = Math.floor(aabb.min.z / this.cellSize);
+    const endZ = Math.floor(aabb.max.z / this.cellSize);
+
+    for (let x = startX; x <= endX; x++) {
+      for (let y = startY; y <= endY; y++) {
+        for (let z = startZ; z <= endZ; z++) {
+          const key = `${x},${y},${z}`;
+          if (!this.map.has(key)) {
+            this.map.set(key, new Set());
+          }
+          this.map.get(key).add(item);
+        }
+      }
+    }
+  }
+
+  query(aabb) {
+    const startX = Math.floor(aabb.min.x / this.cellSize);
+    const endX = Math.floor(aabb.max.x / this.cellSize);
+    const startY = Math.floor(aabb.min.y / this.cellSize);
+    const endY = Math.floor(aabb.max.y / this.cellSize);
+    const startZ = Math.floor(aabb.min.z / this.cellSize);
+    const endZ = Math.floor(aabb.max.z / this.cellSize);
+
+    const candidates = new Set();
+
+    for (let x = startX; x <= endX; x++) {
+      for (let y = startY; y <= endY; y++) {
+        for (let z = startZ; z <= endZ; z++) {
+          const key = `${x},${y},${z}`;
+          if (this.map.has(key)) {
+            const items = this.map.get(key);
+            for (const item of items) {
+              candidates.add(item);
+            }
+          }
+        }
+      }
+    }
+    return candidates;
+  }
+
+  clear() {
+    this.map.clear();
+  }
 }

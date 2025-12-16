@@ -3,8 +3,9 @@ import { db } from "../services/firebaseConfig";
 import { collection, onSnapshot } from "firebase/firestore";
 import {
   Package, Truck, Search, Trash2, Box, ArrowRight,
-  ChevronLeft, ChevronRight, Settings, BarChart3, LayoutGrid
+  ChevronLeft, ChevronRight, Settings, BarChart3, LayoutGrid, Calendar, FileText, Download
 } from "lucide-react";
+import { query, where, getDocs, orderBy } from "firebase/firestore";
 
 export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
   const empresaId = typeof window !== "undefined"
@@ -160,13 +161,6 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
           onClick={() => { setActiveTab("mercadorias"); if (!isOpen) setIsOpen(true); }}
           icon={<Package className="w-5 h-5" />}
           label="Itens"
-        />
-
-        <NavButton
-          active={activeTab === "relatorios"}
-          onClick={() => { setActiveTab("relatorios"); if (!isOpen) setIsOpen(true); }}
-          icon={<BarChart3 className="w-5 h-5" />}
-          label="Relat."
         />
 
         <div className="mt-auto flex flex-col gap-4 items-center w-full pb-4">
@@ -331,16 +325,6 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
                   );
                 })}
               </div>
-            </div>
-          )}
-
-          {/* --- TAB: RELATÓRIOS --- */}
-          {activeTab === "relatorios" && (
-            <div className="flex flex-col items-center justify-center h-64 text-slate-500 animate-fade-in">
-              <div className="w-16 h-16 bg-slate-900 rounded-full flex items-center justify-center mb-4 border border-slate-800">
-                <BarChart3 className="w-8 h-8 opacity-50" />
-              </div>
-              <p className="text-sm font-medium">Relatórios em breve</p>
             </div>
           )}
 
