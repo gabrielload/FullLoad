@@ -352,44 +352,96 @@ export function initFullLoadEngine(container, initialBau = null) {
         ghost.userData.error = null;
       }
 
-      // 1. Tight Pack (Magnetic Snap)
       const existingItems = Array.from(placed.values());
+
+      // Helper to evaluate a position
+      const evaluatePosition = (tx, tz) => {
+        // 1. Tight Pack (Magnetic Snap) - Optional for jump candidates?
+        // Let's keep it consistent: always snap
+        // But for jump candidates, we might want to be explicit.
+        // For the primary mouse position, we do tightPack.
+        // For jump candidates, we stick to the grid relative to the obstacle.
+
+        // 2. Strict Clamp
+        const clamped = clampInsideBau({ x: tx, y: size.y / 2, z: tz }, size, bauInnerBox, 0.001);
+        const cx = clamped.x;
+        const cz = clamped.z;
+
+        // 3. Determine Y
+        const currentType = ghostMesh.userData._meta?.tipo || "caixa";
+        const validY = computeStackY(existingItems, bauInnerBox, cx, cz, size.x, size.y, size.z, currentType);
+
+        // 4. Overlap Check
+        const isOverlapping = checkOverlap({ x: cx, y: validY !== null ? validY : size.y / 2, z: cz }, size, existingItems);
+
+        return { x: cx, y: validY, z: cz, isOverlapping, validY };
+      };
+
+      // --- PRIMARY ATTEMPT ---
+      // 1. Tight Pack (Magnetic Snap)
       const packed = tightPack(gx, gz, size.x, size.z, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
-      gx = packed.x;
-      gz = packed.z;
+      // Evaluate Primary
+      let result = evaluatePosition(packed.x, packed.z);
 
-      // 2. Strict Clamp to bau (IMMEDIATE)
-      // Ensure we are inside BEFORE checking stack/adjacency
-      const margin = 0.001;
-      const clamped = clampInsideBau({ x: gx, y: size.y / 2, z: gz }, size, bauInnerBox, margin);
-      gx = clamped.x;
-      gz = clamped.z;
+      // --- JUMP MECHANISM ---
+      if (result.isOverlapping) {
+        // Try to find a valid neighbor
+        // Offsets: Left, Right, Back, Front
+        // We use the full dimension to jump "over" the obstacle (or just enough to clear it)
+        // But since we don't know WHICH obstacle we hit, we just try jumping by our own size + margin.
 
-      // 3. Determine Y automatically (Gravity)
-      // Pass the type of the current ghost item to check stacking rules
-      const currentType = ghostMesh.userData._meta?.tipo || "caixa";
-      const validY = computeStackY(existingItems, bauInnerBox, gx, gz, size.x, size.y, size.z, currentType);
+        const jumpMargin = 0.02; // 2cm clearance
+        const offsets = [
+          { x: size.x + jumpMargin, z: 0 },  // Right
+          { x: -(size.x + jumpMargin), z: 0 }, // Left
+          { x: 0, z: size.z + jumpMargin },  // Back
+          { x: 0, z: -(size.z + jumpMargin) }  // Front
+        ];
 
-      // 4. Overlap Check (Strict)
-      const isOverlapping = checkOverlap({ x: gx, y: validY !== null ? validY : size.y / 2, z: gz }, size, existingItems);
+        for (const off of offsets) {
+          // Try jumping from the MOUSE position (packed), or the clamped position?
+          // Using result.x/z (which are clamped and packed) is better as a base.
+          const jx = result.x + off.x;
+          const jz = result.z + off.z;
+
+          const jumpResult = evaluatePosition(jx, jz);
+
+          // If valid (no overlap AND valid inside bau AND valid Y found)
+          // Note: validY !== null check is crucial (it means supported or on floor).
+          if (!jumpResult.isOverlapping && jumpResult.validY !== null) {
+            // START: Double check that we didn't just jump into another object 
+            // (evaluatePosition checks overlap, so we are good).
+            // Also check if we are still far enough from the original point? 
+            // (Not strict requirement, but we want it to visually pop to a free spot).
+
+            // Check if we are physically inside the container (clamp handles it, but check if clamp changed it too much)
+            // If clamp moved it back to the collision, it's invalid.
+            const distOriginal = Math.abs(jumpResult.x - result.x) + Math.abs(jumpResult.z - result.z);
+            if (distOriginal > 0.01) {
+              result = jumpResult; // FOUND VALID JUMP!
+              break;
+            }
+          }
+        }
+      }
 
       let gy;
-      if (validY !== null && !isOverlapping) {
-        gy = validY;
+      if (result.validY !== null && !result.isOverlapping) {
+        gy = result.validY;
         // Use meta color or default
         const colorHex = ghostMesh.userData._meta?.cor ? ghostMesh.userData._meta.cor : (ghostMesh.userData._meta?.color || "#0000aa");
         ghostMesh.material.color.set(colorHex);
         ghostMesh.material.opacity = 0.5;
         ghost.userData.isValid = true;
       } else {
-        gy = validY !== null ? validY : size.y / 2;
+        gy = result.validY !== null ? result.validY : size.y / 2;
         ghostMesh.material.color.setHex(0xff0000);
         ghostMesh.material.opacity = 0.8;
         ghost.userData.isValid = false;
       }
 
       // Final position update
-      ghost.position.set(gx, gy, gz);
+      ghost.position.set(result.x, gy, result.z);
 
       // --- HOVER DETECTION ---
       // Raycast against placed items to detect hover
