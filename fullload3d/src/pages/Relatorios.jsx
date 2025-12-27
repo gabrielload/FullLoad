@@ -188,59 +188,34 @@ export default function Relatorios() {
                     <>
                         {/* Stats Overview */}
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div>
-                                        <p className="text-slate-500 text-sm font-semibold">Itens Cadastrados</p>
-                                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{stats.totalMercadorias}</h3>
+                            {[
+                                { title: "Itens Cadastrados", value: stats.totalMercadorias, icon: Package, color: "bg-blue-500" },
+                                { title: "Volume Total", value: `${stats.totalVolume.toFixed(2)} m³`, icon: Calendar, color: "bg-purple-500" },
+                                { title: "Peso Total", value: `${stats.totalPeso.toFixed(0)} kg`, icon: Download, color: "bg-emerald-500" },
+                                { title: "Veículos", value: stats.totalCaminhoes, icon: Truck, color: "bg-orange-500" }
+                            ].map((stat, idx) => (
+                                <div key={idx} className="bg-white p-6 rounded-3xl shadow-[0_2px_10px_-4px_rgba(6,81,237,0.1)] hover:shadow-[0_8px_30px_-4px_rgba(6,81,237,0.15)] transition-all duration-300 border border-slate-100 group relative overflow-hidden">
+                                    <div className="flex justify-between items-start mb-2 relative z-10">
+                                        <div>
+                                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{stat.title}</p>
+                                            <h3 className="text-3xl font-black text-slate-800 tracking-tight">{stat.value}</h3>
+                                        </div>
+                                        <div className={`w-12 h-12 ${stat.color} text-white rounded-2xl flex items-center justify-center shadow-lg transform group-hover:scale-110 transition-transform duration-300`}>
+                                            <stat.icon size={24} />
+                                        </div>
                                     </div>
-                                    <div className="p-3 bg-blue-50 text-blue-600 rounded-xl">
-                                        <Package size={24} />
-                                    </div>
+                                    <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500" />
                                 </div>
-                            </div>
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div>
-                                        <p className="text-slate-500 text-sm font-semibold">Volume Total</p>
-                                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{stats.totalVolume.toFixed(2)} m³</h3>
-                                    </div>
-                                    <div className="p-3 bg-purple-50 text-purple-600 rounded-xl">
-                                        <Calendar size={24} /> {/* Using Calendar as generic icon or Box if better */}
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div>
-                                        <p className="text-slate-500 text-sm font-semibold">Peso Total</p>
-                                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{stats.totalPeso.toFixed(0)} kg</h3>
-                                    </div>
-                                    <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl">
-                                        <Download size={24} />
-                                    </div>
-                                </div>
-                            </div>
-                            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
-                                <div className="flex justify-between items-start mb-4">
-                                    <div>
-                                        <p className="text-slate-500 text-sm font-semibold">Veículos</p>
-                                        <h3 className="text-3xl font-bold text-slate-900 mt-1">{stats.totalCaminhoes}</h3>
-                                    </div>
-                                    <div className="p-3 bg-orange-50 text-orange-600 rounded-xl">
-                                        <Truck size={24} />
-                                    </div>
-                                </div>
-                            </div>
+                            ))}
                         </div>
 
                         {/* Export Cards */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                             {/* Mercadorias Export */}
-                            <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                            <div className="bg-white p-8 rounded-3xl shadow-[0_2px_15px_-4px_rgba(0,0,0,0.05)] hover:shadow-xl border border-slate-100 transition-all duration-300 hover:-translate-y-1">
                                 <div className="flex items-center gap-4 mb-6">
-                                    <div className="w-12 h-12 bg-indigo-100 text-indigo-600 rounded-2xl flex items-center justify-center">
-                                        <Package size={24} />
+                                    <div className="w-14 h-14 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                        <Package size={28} />
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-slate-900">Relatório de Mercadorias</h2>
@@ -251,14 +226,14 @@ export default function Relatorios() {
                                 <div className="flex gap-4">
                                     <button
                                         onClick={() => exportXLSX(mercadorias, "mercadorias")}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileSpreadsheet className="text-green-600" size={20} />
                                         Excel (XLSX)
                                     </button>
                                     <button
                                         onClick={downloadMercadoriasPDF}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileText className="text-red-500" size={20} />
                                         PDF
@@ -267,10 +242,10 @@ export default function Relatorios() {
                             </div>
 
                             {/* Caminhões Export */}
-                            <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                            <div className="bg-white p-8 rounded-3xl shadow-[0_2px_15px_-4px_rgba(0,0,0,0.05)] hover:shadow-xl border border-slate-100 transition-all duration-300 hover:-translate-y-1">
                                 <div className="flex items-center gap-4 mb-6">
-                                    <div className="w-12 h-12 bg-orange-100 text-orange-600 rounded-2xl flex items-center justify-center">
-                                        <Truck size={24} />
+                                    <div className="w-14 h-14 bg-orange-50 text-orange-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                        <Truck size={28} />
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-slate-900">Frota de Veículos</h2>
@@ -281,14 +256,14 @@ export default function Relatorios() {
                                 <div className="flex gap-4">
                                     <button
                                         onClick={() => exportXLSX(caminhoes, "frota_veiculos")}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileSpreadsheet className="text-green-600" size={20} />
                                         Excel (XLSX)
                                     </button>
                                     <button
                                         onClick={downloadCaminhoesPDF}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileText className="text-red-500" size={20} />
                                         PDF
@@ -297,10 +272,10 @@ export default function Relatorios() {
                             </div>
 
                             {/* Histórico de Planos Export */}
-                            <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                            <div className="bg-white p-8 rounded-3xl shadow-[0_2px_15px_-4px_rgba(0,0,0,0.05)] hover:shadow-xl border border-slate-100 transition-all duration-300 hover:-translate-y-1">
                                 <div className="flex items-center gap-4 mb-6">
-                                    <div className="w-12 h-12 bg-purple-100 text-purple-600 rounded-2xl flex items-center justify-center">
-                                        <Calendar size={24} />
+                                    <div className="w-14 h-14 bg-purple-50 text-purple-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                        <Calendar size={28} />
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-slate-900">Histórico de Cargas</h2>
@@ -316,14 +291,14 @@ export default function Relatorios() {
                                             Itens: p.items?.length || 0,
                                             Veiculo: p.veiculo?.nome || "Padrão"
                                         })), "historico_cargas")}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileSpreadsheet className="text-green-600" size={20} />
                                         Excel (XLSX)
                                     </button>
                                     <button
                                         onClick={downloadPlanosPDF}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileText className="text-red-500" size={20} />
                                         PDF
@@ -332,10 +307,10 @@ export default function Relatorios() {
                             </div>
 
                             {/* Top 10 Itens Export */}
-                            <div className="bg-white p-8 rounded-2xl shadow-lg border border-slate-100">
+                            <div className="bg-white p-8 rounded-3xl shadow-[0_2px_15px_-4px_rgba(0,0,0,0.05)] hover:shadow-xl border border-slate-100 transition-all duration-300 hover:-translate-y-1">
                                 <div className="flex items-center gap-4 mb-6">
-                                    <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-2xl flex items-center justify-center">
-                                        <Package size={24} />
+                                    <div className="w-14 h-14 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center shadow-sm">
+                                        <Package size={28} />
                                     </div>
                                     <div>
                                         <h2 className="text-xl font-bold text-slate-900">Análise de Itens (Top 10)</h2>
@@ -346,14 +321,14 @@ export default function Relatorios() {
                                 <div className="flex gap-4">
                                     <button
                                         onClick={() => exportXLSX(itemStats, "top_itens_utilizados")}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileSpreadsheet className="text-green-600" size={20} />
                                         Excel (XLSX)
                                     </button>
                                     <button
                                         onClick={downloadItemStatsPDF}
-                                        className="flex-1 py-3 px-4 rounded-xl border border-slate-200 hover:bg-slate-50 font-semibold text-slate-700 flex items-center justify-center gap-2 transition-colors"
+                                        className="flex-1 py-4 px-4 rounded-2xl border border-slate-200 hover:bg-slate-50 font-bold text-slate-700 flex items-center justify-center gap-2 transition-colors"
                                     >
                                         <FileText className="text-red-500" size={20} />
                                         PDF
@@ -418,7 +393,7 @@ function DetailedHistory({ planos }) {
     }
 
     return (
-        <div className="mt-10 bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="mt-10 bg-white rounded-3xl shadow-[0_2px_15px_-4px_rgba(0,0,0,0.05)] border border-slate-100 overflow-hidden">
             <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                     <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">

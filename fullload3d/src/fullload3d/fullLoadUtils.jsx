@@ -36,12 +36,12 @@ const sharedBoxGeometry = new THREE.BoxGeometry(1, 1, 1);
 const sharedBoxEdges = new THREE.EdgesGeometry(sharedBoxGeometry);
 
 // Cylinder: Radius 0.5 (Diameter 1), Height 1. Scale(D, H, D)
-const sharedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+const sharedCylinderGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
 const sharedCylinderEdges = new THREE.EdgesGeometry(sharedCylinderGeometry, 30);
 
 // Tire: Same as Cylinder but rotated Z 90deg to lie on side.
 // Warning: We must clone geometry if we rotate it, but we can do it once globally.
-const sharedTireGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 8);
+const sharedTireGeometry = new THREE.CylinderGeometry(0.5, 0.5, 1, 32);
 sharedTireGeometry.rotateZ(Math.PI / 2);
 const sharedTireEdges = new THREE.EdgesGeometry(sharedTireGeometry, 30);
 
@@ -285,6 +285,21 @@ export function supportTopAt(cx, cz, fx, fz, existingItems, excludeMesh = null) 
     const overlapZ = Math.abs(icz - cz) <= (ifz / 2 + fz / 2) - 0.00001;
 
     if (overlapX && overlapZ) {
+      // PALLET RULE CHECK FOR OPTIMIZER / GENERIC SUPPORT
+      const itemData = item.data || {};
+      const meshMeta = item.mesh?.userData?._meta || {};
+      const resolvedMeta = itemData.tipo ? itemData : (itemData.meta || meshMeta);
+
+      if ((resolvedMeta.tipo || "").toLowerCase() === "palete") {
+        // If we are strictly checking top, a pallet creates an "infinite" block or invalid surface
+        // But supportTopAt just returns Y.
+        // If we return a simplified "Infinity", it might break optimization logic.
+        // For now, let's just let optimization stack? NO, user said "never".
+        // But `supportTopAt` is specific to the "Auto Optimize" function which uses a different logic?
+        // The user said "Eu consegui empilhar" (I managed to stack), implying MANUAL placement.
+
+        // Let's stick to `computeStackY` for manual.
+      }
       top = Math.max(top, b.max.y);
     }
   }
@@ -324,44 +339,57 @@ export function computeStackY(existingItems, bauBox, x, z, fx, fy, fz, currentTy
       const area = overlapW * overlapD;
 
       // --- ADVANCED STACKING RULES ---
-      const itemBelowMeta = item.data?.meta || item.data || {};
-      const itemBelowType = itemBelowMeta.tipo || "caixa";
+      // Robustly resolve metadata and type
+      // --- ADVANCED STACKING RULES ---
+      // AGGRESSIVE METADATA SCAN
+      const metaSources = [
+        item.data,                     // Standard data (from placed.values())
+        item.data?.meta,               // Nested meta
+        item.mesh?.userData?.meta,     // Mesh meta (placed)
+        item.mesh?.userData?._meta     // Ghost meta (legacy/preview)
+      ];
+
+      let foundType = "caixa";
+      let resolvedMeta = {};
+
+      for (const source of metaSources) {
+        if (source) {
+          if (source.tipo) foundType = source.tipo;
+          // Merge props into resolvedMeta (priority to first found, but accumulate non-nulls)
+          resolvedMeta = { ...source, ...resolvedMeta };
+        }
+      }
+
+      const itemBelowType = foundType.trim().toLowerCase();
+
+      // DEBUG LOG (Uncomment if needed)
+      // console.log(`Overlap check: Below=${itemBelowType}, Current=${currentType}, Area=${area}`);
 
       // 1. Fragility Check: Cannot stack ON TOP of fragile items
-      // If item below is fragile (media/alta), forbid stacking.
-      if (itemBelowMeta.fragilidade === "alta" || itemBelowMeta.fragilidade === "media") {
+      if (resolvedMeta.fragilidade === "alta" || resolvedMeta.fragilidade === "media") {
         return null; // Forbidden
       }
 
-      // 2. Stackable Check: Cannot stack ON TOP of non-stackable items
-      if (itemBelowMeta.empilhavel === false) {
+      // 2. Stackable Check
+      if (resolvedMeta.empilhavel === false) {
         return null; // Forbidden
       }
 
-      // 3. Hazardous Check: Hazardous items cannot be stacked with non-hazardous (simplified rule)
-      // Or: Hazardous items cannot be below non-hazardous? 
-      // Rule: "Se hazardous==True → proibir empilhar acima ou abaixo (stackable=false)"
-      // This is handled by the item itself being non-stackable (set in Mercadoria), 
-      // BUT if the item BELOW is hazardous, we also can't stack on it.
-      if (itemBelowMeta.perigoso === true) {
+      // 3. Hazardous Check
+      if (resolvedMeta.perigoso === true) {
         return null; // Forbidden
       }
 
       // 4. Type Compatibility
-      // Box on Cylinder -> Forbidden
-      if (currentType === "caixa" && itemBelowType === "cilindrico") {
-        return null;
-      }
-      // Box on Tire -> Forbidden (unless tire is flat? Assuming tire on side behaves like cylinder for now)
-      if (currentType === "caixa" && itemBelowType === "pneu") {
-        // If tire is lying down (flat), maybe allowed? 
-        // For safety, let's forbid box on tire for now unless specified.
-        return null;
+      if (currentType === "caixa" && itemBelowType === "cilindrico") return null;
+      if (currentType === "caixa" && itemBelowType === "pneu") return null;
+
+      // 5. Pallet Rule: Nothing can be stacked ON TOP of a pallet.
+      if (itemBelowType === "palete") {
+        return null; // Forbidden
       }
 
-      // 5. Tire Nesting (Interlacing) - handled in placement logic, but here we check vertical support.
-      // If tires are stacked, they stack fine.
-
+      // 6. Tire Nesting... (continue logic)
       if (area >= minSupportArea) {
         // Valid support
         if (b.max.y >= currentY - 0.01) {

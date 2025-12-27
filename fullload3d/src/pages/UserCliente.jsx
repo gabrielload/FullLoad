@@ -405,32 +405,31 @@ export default function Usuarios() {
         {/* Modal Criar Usuário */}
         {openModal && (
           <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
             onClick={() => setOpenModal(false)}
           >
             <div
-              className="bg-white p-8 rounded-2xl w-[500px] shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="bg-white p-5 rounded-3xl w-full max-w-[500px] shadow-2xl max-h-[80vh] overflow-y-auto custom-scrollbar flex flex-col"
               onClick={(e) => e.stopPropagation()}
             >
-              <h2 className="text-2xl font-bold mb-6 text-slate-900">
+              <h2 className="text-2xl font-bold mb-4 text-slate-900 shrink-0">
                 Novo Usuário
               </h2>
 
-              <div className="mb-4">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">Setor</label>
-                <input
-                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-orange-500 transition-colors"
-                  placeholder="Ex: Logística"
-                  value={form.setor}
-                  onChange={(e) => handleChange("setor", e.target.value)}
-                />
-              </div>
-
-              <div className="space-y-4">
+              <div className="space-y-3 overflow-y-auto custom-scrollbar">
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Nome</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Setor</label>
                   <input
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                    className="w-full p-2 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-orange-500 transition-colors"
+                    placeholder="Ex: Logística"
+                    value={form.setor}
+                    onChange={(e) => handleChange("setor", e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Nome</label>
+                  <input
+                    className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                     placeholder="Nome completo"
                     value={form.nome}
                     onChange={(e) => handleChange("nome", e.target.value)}
@@ -438,10 +437,10 @@ export default function Usuarios() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Email</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Email</label>
                   <input
                     type="email"
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                     placeholder="email@exemplo.com"
                     value={form.email}
                     onChange={(e) => handleChange("email", e.target.value)}
@@ -449,11 +448,11 @@ export default function Usuarios() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Senha</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Senha</label>
                   <div className="relative">
                     <input
                       type={showSenha ? "text" : "password"}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                      className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                       placeholder="Senha segura"
                       value={form.senha}
                       onChange={(e) => handleChange("senha", e.target.value)}
@@ -470,9 +469,9 @@ export default function Usuarios() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-semibold text-slate-700 mb-2">Cargo</label>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1">Cargo</label>
                   <select
-                    className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                    className="w-full px-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                     value={form.cargo}
                     onChange={(e) => handleChange("cargo", e.target.value)}
                   >
@@ -483,10 +482,10 @@ export default function Usuarios() {
                 </div>
               </div>
 
-              <div className="flex justify-end gap-3 mt-6">
+              <div className="flex justify-end gap-3 mt-6 shrink-0">
                 <button
                   onClick={() => setOpenModal(false)}
-                  className="px-6 py-3 border-2 border-slate-200 rounded-xl text-slate-700 font-semibold hover:bg-slate-50 transition-all"
+                  className="px-6 py-2.5 border-2 border-slate-200 rounded-xl text-slate-700 font-semibold hover:bg-slate-50 transition-all"
                 >
                   Cancelar
                 </button>
@@ -494,7 +493,7 @@ export default function Usuarios() {
                 <button
                   onClick={criarUsuario}
                   disabled={loading}
-                  className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold shadow-lg transition-all disabled:opacity-70"
+                  className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gradient-to-r from-orange-600 to-orange-500 hover:from-orange-700 hover:to-orange-600 text-white font-bold shadow-lg transition-all disabled:opacity-70"
                 >
                   {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <><Save size={16} /> Salvar</>}
                 </button>
@@ -506,14 +505,14 @@ export default function Usuarios() {
         {/* Modal Importar CSV */}
         {openImportModal && (
           <div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999]"
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
             onClick={() => {
               setOpenImportModal(false);
               setCsvPreview([]);
             }}
           >
             <div
-              className="bg-white p-8 rounded-2xl w-[700px] shadow-2xl max-h-[90vh] overflow-y-auto"
+              className="bg-white p-8 rounded-3xl w-full max-w-[700px] shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar"
               onClick={(e) => e.stopPropagation()}
             >
               <h2 className="text-2xl font-bold mb-6 text-slate-900">

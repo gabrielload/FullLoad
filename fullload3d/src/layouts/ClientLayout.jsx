@@ -185,6 +185,7 @@ export default function ClientLayout({ children }) {
     { path: "/dashboard", label: "Painel", icon: Home },
     { path: "/carregamento", label: "Carregamento", icon: Package },
     { path: "/mercadoria", label: "Mercadoria", icon: Box },
+
     { path: "/UserClient", label: "Usuários", icon: Users },
     { path: "/Caminhao", label: "Caminhões", icon: Truck },
   ];
@@ -192,19 +193,19 @@ export default function ClientLayout({ children }) {
   const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
 
   return (
-    <div className="h-screen overflow-hidden bg-slate-50 flex font-sans text-slate-900">
+    <div className="h-screen overflow-hidden bg-[#F8FAFC] flex font-sans text-slate-900 selection:bg-orange-500/20 selection:text-orange-600">
       {/* Mobile Overlay */}
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden backdrop-blur-sm"
+          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm transition-opacity"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <aside
-        className={`fixed top-0 left-0 h-full bg-[#0f172a] z-40 transition-all duration-300 shadow-2xl
-        ${isSidebarOpen ? "w-64" : "w-20"}
+        className={`fixed top-0 left-0 h-full bg-[#0B1121] z-40 transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) shadow-2xl border-r border-white/5
+        ${isSidebarOpen ? "w-[280px]" : "w-20"}
         ${isMobileMenuOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}
         `}
       >
@@ -243,6 +244,7 @@ export default function ClientLayout({ children }) {
           <NavItem to="/FullLoad" icon={BoxIcon} label="FullLoad 3D" isOpen={isSidebarOpen} active={location.pathname === "/FullLoad"} highlight />
           <NavItem to="/Carregamento" icon={Package} label="Planos de Carga" isOpen={isSidebarOpen} active={location.pathname === "/Carregamento"} />
           <NavItem to="/Mercadoria" icon={Box} label="Mercadorias" isOpen={isSidebarOpen} active={location.pathname === "/Mercadoria"} />
+
           <NavItem to="/Caminhao" icon={Truck} label="Caminhões" isOpen={isSidebarOpen} active={location.pathname === "/Caminhao"} />
           <NavItem to="/relatorios" icon={FileText} label="Relatórios" isOpen={isSidebarOpen} active={location.pathname === "/relatorios"} />
 
@@ -288,9 +290,9 @@ export default function ClientLayout({ children }) {
       </aside>
 
       {/* Main Content Area */}
-      <div className={`flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-300 ${isSidebarOpen ? "md:ml-64" : "md:ml-20"}`}>
+      <div className={`flex-1 flex flex-col min-w-0 overflow-hidden transition-all duration-500 cubic-bezier(0.4, 0, 0.2, 1) ${isSidebarOpen ? "md:ml-[280px]" : "md:ml-20"}`}>
         {/* Top Header */}
-        <header className="h-20 bg-white/80 backdrop-blur-md border-b border-slate-200 sticky top-0 z-30 px-6 md:px-8 flex items-center justify-between">
+        <header className="h-24 bg-white/70 backdrop-blur-xl border-b border-indigo-50/50 sticky top-0 z-30 px-6 md:px-10 flex items-center justify-between shadow-[0_4px_30px_-5px_rgba(0,0,0,0.01)]">
           <div className="flex items-center gap-4">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
@@ -412,8 +414,8 @@ export default function ClientLayout({ children }) {
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-8 scroll-smooth">
-          <div className="max-w-7xl mx-auto animate-fade-in-up">
+        <main className="flex-1 overflow-y-auto p-2 md:p-4 scroll-smooth">
+          <div className="w-full mx-auto animate-fade-in-up">
             {children}
           </div>
         </main>

@@ -217,7 +217,7 @@ export default function Dashboard() {
 
   return (
     <ClientLayout>
-      <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 space-y-8">
+      <div className="min-h-screen bg-slate-50/50 p-2 md:p-4 space-y-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
@@ -362,37 +362,44 @@ export default function Dashboard() {
 
 
           {/* Recent 3D Plans */}
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+          <div className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(6,81,237,0.1)] border border-slate-100 overflow-hidden">
+            <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
               <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Box className="text-purple-500" size={20} />
+                <Box className="text-purple-600" size={20} />
                 Planos 3D Recentes
               </h2>
-              <button onClick={() => navigate("/Carregamento")} className="text-sm text-orange-600 font-semibold hover:text-orange-700 transition-colors">Ver todos</button>
+              <button onClick={() => navigate("/Carregamento")} className="text-sm text-indigo-600 font-bold hover:text-indigo-700 transition-colors">Ver todos</button>
             </div>
             <div className="divide-y divide-slate-100">
               {planos.filter(p => p.nome).length > 0 ? (
                 planos.filter(p => p.nome).slice(0, 5).map((p) => (
-                  <div key={p.id} className="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between group cursor-pointer" onClick={() => navigate(`/FullLoad?planId=${p.id}`)}>
+                  <div key={p.id} className="p-5 hover:bg-indigo-50/30 transition-all flex items-center justify-between group cursor-pointer border-l-4 border-transparent hover:border-indigo-500" onClick={() => navigate(`/FullLoad?planId=${p.id}`)}>
                     <div className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center">
+                      <div className="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
                         <Box size={20} />
                       </div>
                       <div>
-                        <p className="font-bold text-slate-800">{p.nome || "-"}</p>
-                        <p className="text-xs text-slate-500">
-                          {p.items?.length || 0} itens • {new Date(p.dataCriacao?.toDate ? p.dataCriacao.toDate() : p.dataCriacao).toLocaleDateString()}
+                        <p className="font-bold text-slate-800 text-sm md:text-base group-hover:text-indigo-700 transition-colors">{p.nome || "-"}</p>
+                        <p className="text-xs text-slate-500 font-medium mt-0.5 flex items-center gap-2">
+                          <span className="bg-slate-100 px-1.5 py-0.5 rounded text-slate-500">{p.items?.length || 0} itens</span>
+                          <span>•</span>
+                          <span>{new Date(p.dataCriacao?.toDate ? p.dataCriacao.toDate() : p.dataCriacao).toLocaleDateString()}</span>
                         </p>
                       </div>
                     </div>
-                    <ArrowRight size={16} className="text-slate-300 group-hover:text-orange-500 transition-colors" />
+                    <div className="w-8 h-8 rounded-full bg-white border border-slate-100 flex items-center justify-center text-slate-300 group-hover:text-indigo-500 group-hover:border-indigo-100 transition-all">
+                      <ArrowRight size={14} />
+                    </div>
                   </div>
                 ))
               ) : (
-                <div className="p-8 text-center text-slate-400">
-                  <Box size={48} className="mx-auto mb-3 opacity-20" />
-                  <p>Nenhum plano 3D criado ainda.</p>
-                  <button onClick={() => navigate("/FullLoad")} className="mt-4 text-orange-600 font-bold text-sm hover:underline">Criar primeiro plano</button>
+                <div className="p-12 text-center text-slate-400">
+                  <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <Box size={32} className="text-slate-300" />
+                  </div>
+                  <p className="font-medium text-slate-600">Nenhum plano recente</p>
+                  <p className="text-sm mb-4">Comece criando um novo carregamento.</p>
+                  <button onClick={() => navigate("/FullLoad")} className="px-5 py-2 bg-slate-900 text-white rounded-xl text-sm font-bold hover:bg-slate-800 transition-colors shadow-lg shadow-slate-900/10">Criar Agora</button>
                 </div>
               )}
             </div>
@@ -405,25 +412,26 @@ export default function Dashboard() {
 
 function MetricCard({ icon: Icon, title, value, trend, trendUp, gradient, iconBg }) {
   return (
-    <div className="relative overflow-hidden bg-white rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300 group">
-      {/* Hover Gradient Overlay */}
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-5 transition-opacity duration-500" style={{ background: gradient }}></div>
+    <div className="relative overflow-hidden bg-white rounded-3xl p-6 shadow-[0_2px_10px_-4px_rgba(6,81,237,0.1)] hover:shadow-[0_8px_30px_-4px_rgba(6,81,237,0.15)] transition-all duration-300 group border border-slate-100">
+      <div className="flex items-start justify-between relative z-10">
+        <div>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{title}</p>
+          <h3 className="text-3xl font-black text-slate-800 tracking-tight">{value}</h3>
 
-      <div className="p-6 relative z-10">
-        <div className="flex items-center justify-between mb-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-white shadow-lg ${iconBg}`}>
-            <Icon size={24} />
-          </div>
           {trend && (
-            <div className={`flex items-center gap-1 text-xs font-bold px-2 py-1 rounded-full ${trendUp ? "bg-green-50 text-green-600" : "bg-red-50 text-red-600"}`}>
-              {trendUp ? <TrendingUp size={12} /> : <TrendingUp size={12} className="rotate-180" />}
+            <div className={`flex items-center gap-1 text-xs font-bold mt-2 ${trendUp ? "text-emerald-500" : "text-rose-500"}`}>
+              {trendUp ? <TrendingUp size={14} /> : <TrendingUp size={14} className="rotate-180" />}
               {trend}
             </div>
           )}
         </div>
-        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">{title}</h3>
-        <p className="text-3xl font-bold text-slate-900">{value}</p>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-orange-500/10 ${iconBg} group-hover:scale-110 transition-transform duration-300`}>
+          <Icon size={22} className="text-white" />
+        </div>
       </div>
+
+      {/* Decorative Blur */}
+      <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500" />
     </div>
   );
 }

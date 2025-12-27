@@ -21,6 +21,7 @@ import Perfil from "./pages/Perfil";
 import Configuracoes from "./pages/Configuracoes";
 import Ajuda from "./pages/Ajuda";
 
+
 function ProtectedRoute({ children, allowed }) {
   const role = localStorage.getItem("role");
   const isAuthenticated = localStorage.getItem("uid");
@@ -167,6 +168,7 @@ export default function App() {
           </ProtectedRoute>
         }
       />
+
 
 
       {/* Fallback */}

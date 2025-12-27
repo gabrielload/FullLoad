@@ -1,4 +1,4 @@
-// src/pages/FullLoad3d.jsx
+
 import React, { useEffect, useRef, useState } from "react";
 import Menu3D from "../fullload3d/menu3D";
 import { generatePDFBlob } from "../utils/pdfGenerator";
@@ -8,15 +8,21 @@ import SaveModal from "../components/fullload3d/modals/SaveModal";
 import ListModal from "../components/fullload3d/modals/ListModal";
 import ShortcutsModal from "../components/fullload3d/modals/ShortcutsModal";
 import ExportModal from "../components/fullload3d/modals/ExportModal";
+
+
+
 import ControlsHUD from "../components/fullload3d/hud/ControlsHUD";
 import StatsHUD from "../components/fullload3d/hud/StatsHUD";
 import Toolbar from "../components/fullload3d/hud/Toolbar";
 import StatusIndicator from "../components/fullload3d/hud/StatusIndicator";
 import { useNavigate } from "react-router-dom";
 import { db, storage } from "../services/firebaseConfig";
-import { collection, addDoc, doc, getDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, serverTimestamp, collection, addDoc, query, orderBy, getDocs } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { calculateCenterOfGravity } from "../fullload3d/cgUtils";
+import WeightDistributionHUD from "../components/fullload3d/hud/WeightDistributionHUD";
 
+import { createFullStepReport } from "../controllers/ReportController";
 import {
   initFullLoadEngine,
   clearScene,
@@ -24,6 +30,7 @@ import {
   setGhostObject,
   addMercadoriaAuto,
   captureSnapshot,
+  generateStepSnapshots, // Import Engine API
   getPlacedItems,
   getBauState,
   setItems,
@@ -59,9 +66,17 @@ export default function FullLoad3D() {
   const [confirmModal, setConfirmModal] = useState({ show: false, title: "", message: "", onConfirm: null });
   const [showExportModal, setShowExportModal] = useState(false);
   const [successToast, setSuccessToast] = useState(null);
+  const [cgStats, setCgStats] = useState({ x: 0, z: 0, totalWeight: 0, isBalanced: true });
+
+  const [planId] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("planId");
+  });
+
+
   const navigate = useNavigate();
   const queryParams = new URLSearchParams(window.location.search);
-  const planId = queryParams.get("planId");
+  // const planId = queryParams.get("planId"); // This line is now redundant due to the useState above
 
   useEffect(() => {
     localStorage.setItem("controlsHUD_visible", JSON.stringify(showControlsHUD));
@@ -295,11 +310,29 @@ export default function FullLoad3D() {
 
     // Listen to updates and save
     const handleUpdateAndSave = () => {
-      if (planId) return; // Don't even show "saving..."
+      // 1. UI Updates (Stats & Weight HUD)
+      const items = getPlacedItems();
+      const totalWeight = items.reduce((acc, item) => {
+        const w = Number(item.data?.peso || item.data?.meta?.peso || 0);
+        return acc + w;
+      }, 0);
+
+      setStats({ count: items.length, weight: totalWeight });
+      setCurrentItems(items);
+
+      // Calculate CG (Center of Gravity)
+      const bauState = getBauState();
+      if (bauState) {
+        const cg = calculateCenterOfGravity(items, { L: bauState.L, H: bauState.H, W: bauState.W });
+        setCgStats(cg);
+      }
+
+      // 2. Auto-Save Logic
+      // DO NOT AUTOSAVE if we are viewing a saved plan history (prevents overwriting Draft)
+      if (planId) return;
 
       setSaveStatus("saving");
-      // 2. OPTIMIZATION: Reduce debounce from 500ms to 200ms
-      // This reduces the chance of "F5 losing data" if refreshed quickly after an action.
+      // OPTIMIZATION: Reduce debounce from 500ms to 200ms
       setTimeout(handleAutoSave, 200);
     };
 
@@ -497,20 +530,54 @@ export default function FullLoad3D() {
     setShowExportModal(true);
   };
 
-  const confirmExportPDF = async () => {
+  const confirmExportPDF = async (isStepReport = false) => {
     setShowExportModal(false);
-    const docInfo = { ...saveForm };
+    setSaveStatus("saving");
 
-    const blob = await generatePDFBlob(docInfo);
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `plano_carga_${docInfo.documento || "export"}.pdf`;
-    link.click();
-    URL.revokeObjectURL(url);
+    try {
+      let blob;
+      const docInfo = { ...saveForm };
 
-    setSuccessToast("PDF gerado com sucesso!");
-    setTimeout(() => setSuccessToast(null), 3000);
+      if (isStepReport) {
+        // New: Step-by-Step Manual
+        blob = await createFullStepReport(docInfo, []);
+      } else {
+        // Legacy: Simple Report
+        blob = await generatePDFBlob(docInfo);
+      }
+
+      if (blob) {
+        console.log(`📄 PDF Gerado: ${blob.size} bytes`); // Log for verification
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+
+        // Sanitize filename
+        const safeDoc = (docInfo.documento || "Carga").replace(/[^a-z0-9]/gi, '_');
+        const safeType = isStepReport ? "MANUAL" : "RESUMO";
+        link.download = `FullLoad_${safeDoc}_${safeType}.pdf`;
+
+        document.body.appendChild(link); // Append to body for Firefox support
+        link.click();
+        document.body.removeChild(link);
+
+        // Delay revocation to ensure download starts
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+          console.log("🧹 URL do PDF limpa da memória");
+        }, 2000);
+
+        setSuccessToast(isStepReport ? "Manual passo a passo gerado com sucesso!" : "Relatório PDF gerado com sucesso!");
+        setTimeout(() => setSuccessToast(null), 3000);
+      }
+    } catch (error) {
+      console.error("Erro ao gerar PDF:", error);
+      setErrorToast("Erro ao gerar PDF: " + error.message);
+      setTimeout(() => setErrorToast(null), 3000);
+    } finally {
+      setSaveStatus("idle");
+    }
   };
 
   // =============================

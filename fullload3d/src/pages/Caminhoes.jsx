@@ -1,5 +1,6 @@
 // src/pages/Caminhao.jsx
 import React, { useState, useEffect, useMemo } from "react";
+import { createPortal } from "react-dom";
 import ClientLayout from "../layouts/ClientLayout";
 import { db, storage } from "../services/firebaseConfig";
 import {
@@ -180,19 +181,30 @@ export default function Caminhao() {
     setIsModalOpen(true);
   };
 
-  const handleExcluir = async (id) => {
-    if (!confirm("Tem certeza que deseja excluir este veículo?")) return;
+  const [deleteConfirmation, setDeleteConfirmation] = useState(null);
 
+
+  const handleExcluir = (id) => {
+    setDeleteConfirmation({ id });
+  };
+
+  const confirmarExclusao = async () => {
+    if (!deleteConfirmation) return;
+    const { id } = deleteConfirmation;
     setLoading(true);
     try {
       await deleteDoc(doc(db, "empresas", empresaId, "caminhoes", id));
       carregar();
+      setDeleteConfirmation(null);
+      setMensagemSucesso("Veículo excluído com sucesso!");
+      setTimeout(() => setMensagemSucesso(""), 3000);
     } catch (err) {
       console.error("Erro ao excluir:", err);
     } finally {
       setLoading(false);
     }
   };
+
 
   const handleCSVUpload = (file) => {
     if (!file) return;
@@ -278,28 +290,30 @@ export default function Caminhao() {
   ).toFixed(2);
 
   const MetricCard = ({ icon: Icon, title, value, gradient, iconBg }) => (
-    <div className="relative overflow-hidden bg-white rounded-2xl shadow-sm border border-slate-100 hover:shadow-md transition-all duration-300 group">
-      <div className="absolute inset-0 bg-gradient-to-br opacity-0 group-hover:opacity-5 transition-opacity" style={{ background: gradient }}></div>
-      <div className="p-6 relative z-10">
-        <div className="flex items-center justify-between mb-4">
-          <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${iconBg} shadow-lg text-white`}>
-            <Icon size={24} />
-          </div>
+    <div className="relative overflow-hidden bg-white rounded-3xl p-6 shadow-[0_2px_10px_-4px_rgba(6,81,237,0.1)] hover:shadow-[0_8px_30px_-4px_rgba(6,81,237,0.15)] transition-all duration-300 group border border-slate-100">
+      <div className="flex items-start justify-between relative z-10">
+        <div>
+          <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">{title}</p>
+          <h3 className="text-3xl font-black text-slate-800 tracking-tight">{value}</h3>
         </div>
-        <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide mb-1">{title}</h3>
-        <p className="text-3xl font-bold text-slate-900">{value}</p>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-orange-500/10 ${iconBg} group-hover:scale-110 transition-transform duration-300`}>
+          <Icon size={22} className="text-white" />
+        </div>
       </div>
+      <div className="absolute -bottom-6 -right-6 w-24 h-24 bg-gradient-to-br from-slate-50 to-slate-100 rounded-full opacity-50 group-hover:scale-150 transition-transform duration-500" />
     </div>
   );
 
   return (
     <ClientLayout>
-      <div className="min-h-screen bg-slate-50/50 p-6 md:p-8 space-y-8">
+      <div className="min-h-screen bg-slate-50/50 p-2 md:p-4 space-y-8">
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
           <div>
             <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
-              <Truck className="w-8 h-8 text-orange-500" />
+              <div className="p-2 bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl text-white shadow-lg shadow-orange-500/20">
+                <Truck className="w-6 h-6" />
+              </div>
               Frota de Caminhões
             </h1>
             <p className="text-slate-500 mt-1">Gerencie e monitore seus veículos de carga.</p>
@@ -307,16 +321,16 @@ export default function Caminhao() {
           <div className="flex gap-3">
             <button
               onClick={() => setOpenImportModal(true)}
-              className="px-4 py-2.5 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2 shadow-sm"
+              className="px-4 py-3 bg-white border border-slate-200 text-slate-700 font-bold rounded-xl hover:bg-slate-50 transition-colors flex items-center gap-2 shadow-sm"
             >
               <FileText size={18} />
               Importar CSV
             </button>
             <button
               onClick={() => { resetForm(); setIsModalOpen(true); }}
-              className="px-4 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-500/20 flex items-center gap-2"
+              className="px-6 py-3 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 transition-colors shadow-lg shadow-orange-500/20 flex items-center gap-2"
             >
-              <Plus size={18} />
+              <Plus size={20} />
               Novo Veículo
             </button>
           </div>
@@ -328,49 +342,46 @@ export default function Caminhao() {
             icon={Truck}
             title="Total de Caminhões"
             value={totalCaminhoes}
-            gradient="linear-gradient(135deg, #667eea 0%, #764ba2 100%)"
-            iconBg="bg-gradient-to-br from-purple-500 to-purple-600"
+            iconBg="bg-indigo-500"
           />
           <MetricCard
             icon={Ruler}
             title="Média de Área"
             value={`${mediaArea} m²`}
-            gradient="linear-gradient(135deg, #f093fb 0%, #f5576c 100%)"
-            iconBg="bg-gradient-to-br from-pink-500 to-rose-600"
+            iconBg="bg-pink-500"
           />
           <MetricCard
             icon={Box}
             title="Média de Volume"
             value={`${mediaVolume} m³`}
-            gradient="linear-gradient(135deg, #4facfe 0%, #00f2fe 100%)"
-            iconBg="bg-gradient-to-br from-cyan-500 to-blue-600"
+            iconBg="bg-blue-500"
           />
         </div>
 
         {/* Controls & Search */}
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-between bg-white p-4 rounded-2xl shadow-sm border border-slate-100">
-          <div className="relative w-full md:w-96">
-            <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+        <div className="bg-white/80 backdrop-blur-md p-4 rounded-3xl shadow-lg border border-white/20 flex flex-col md:flex-row items-center justify-between gap-4 sticky top-4 z-30">
+          <div className="relative w-full md:w-96 group">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-orange-500 transition-colors" />
             <input
               type="text"
               placeholder="Buscar por nome, modelo ou placa..."
               value={filtro}
               onChange={(e) => setFiltro(e.target.value)}
-              className="w-full pl-12 pr-4 py-2.5 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+              className="w-full pl-12 pr-4 py-3 rounded-2xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-800"
             />
           </div>
 
-          <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-xl">
+          <div className="flex items-center gap-2 bg-slate-100/80 p-1.5 rounded-2xl">
             <button
               onClick={() => setViewMode("grid")}
-              className={`p-2 rounded-lg transition-all ${viewMode === "grid" ? "bg-white text-orange-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+              className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === "grid" ? "bg-white text-orange-600 shadow-md transform scale-105" : "text-slate-400 hover:text-slate-600"}`}
               title="Visualização em Grade"
             >
               <LayoutGrid size={20} />
             </button>
             <button
               onClick={() => setViewMode("list")}
-              className={`p-2 rounded-lg transition-all ${viewMode === "list" ? "bg-white text-orange-600 shadow-sm" : "text-slate-400 hover:text-slate-600"}`}
+              className={`p-2.5 rounded-xl transition-all duration-300 ${viewMode === "list" ? "bg-white text-orange-600 shadow-md transform scale-105" : "text-slate-400 hover:text-slate-600"}`}
               title="Visualização em Lista"
             >
               <ListIcon size={20} />
@@ -380,9 +391,9 @@ export default function Caminhao() {
 
         {/* Success Message */}
         {mensagemSucesso && (
-          <div className="bg-emerald-50 border border-emerald-100 p-4 rounded-xl animate-fade-in flex items-center gap-3">
-            <CheckCircle className="w-5 h-5 text-emerald-500" />
-            <p className="text-sm text-emerald-700 font-medium">{mensagemSucesso}</p>
+          <div className="fixed bottom-6 right-6 z-50 bg-emerald-500 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-3 animate-fade-in-up">
+            <CheckCircle size={24} />
+            <p className="font-bold">{mensagemSucesso}</p>
           </div>
         )}
 
@@ -397,9 +408,10 @@ export default function Caminhao() {
                 return (
                   <div
                     key={cam.id}
-                    className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-xl hover:-translate-y-1 transition-all duration-300 group"
+                    className="bg-white rounded-3xl shadow-[0_2px_10px_-4px_rgba(6,81,237,0.1)] hover:shadow-[0_20px_40px_-4px_rgba(6,81,237,0.15)] overflow-hidden hover:-translate-y-1 transition-all duration-300 group ring-1 ring-slate-100"
                   >
-                    <div className="relative h-48 bg-slate-100 overflow-hidden">
+                    <div className="relative h-48 bg-slate-50 overflow-hidden">
+
                       {cam.fotoUrl ? (
                         <img
                           src={cam.fotoUrl}
@@ -413,8 +425,11 @@ export default function Caminhao() {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-60" />
                       <div className="absolute bottom-4 left-4 text-white">
-                        <h3 className="text-lg font-bold">{cam.nome}</h3>
-                        <p className="text-sm opacity-90">{cam.modelo || "-"}</p>
+                        <h3 className="text-lg font-bold flex items-center gap-2">
+                          {cam.tipo === 'palete' && <Box className="w-5 h-5 text-orange-400" />}
+                          {cam.nome}
+                        </h3>
+                        <p className="text-sm opacity-90">{cam.tipo === 'palete' ? "Palete Padrão" : (cam.modelo || "-")}</p>
                       </div>
                       <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button onClick={() => handleEditar(cam)} className="p-2 bg-white/20 backdrop-blur-md hover:bg-white text-white hover:text-orange-600 rounded-lg transition-all">
@@ -533,14 +548,15 @@ export default function Caminhao() {
           </div>
         )}
 
+
         {/* Create/Edit Modal */}
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6">
+        {isModalOpen && createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setIsModalOpen(false)} />
 
-            <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl transform transition-all animate-fade-in-up overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl transform transition-all animate-fade-in-up overflow-hidden flex flex-col max-h-[80vh]">
               {/* Modal Header */}
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
                 <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
                   {editId ? <Pencil className="w-5 h-5 text-orange-500" /> : <Plus className="w-5 h-5 text-orange-500" />}
                   {editId ? "Editar Veículo" : "Novo Veículo"}
@@ -551,13 +567,13 @@ export default function Caminhao() {
               </div>
 
               {/* Modal Body */}
-              <div className="p-6 overflow-y-auto">
-                <div className="space-y-6">
+              <div className="p-5 overflow-y-auto custom-scrollbar">
+                <div className="space-y-3">
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-1">Nome do Veículo*</label>
                     <input
                       type="text"
-                      className={`w-full px-4 py-3 rounded-xl border ${errors.nome ? "border-red-500" : "border-slate-200"} focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900`}
+                      className={`w-full px-4 py-2 rounded-xl border ${errors.nome ? "border-red-500" : "border-slate-200"} focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900`}
                       placeholder="Ex: Scania R450"
                       value={nome}
                       onChange={(e) => { setNome(e.target.value); if (errors.nome) setErrors({ ...errors, nome: null }); }}
@@ -570,7 +586,7 @@ export default function Caminhao() {
                       <label className="block text-sm font-semibold text-slate-700 mb-1">Modelo</label>
                       <input
                         type="text"
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                         placeholder="Ex: R450"
                         value={modelo}
                         onChange={(e) => setModelo(e.target.value)}
@@ -580,7 +596,7 @@ export default function Caminhao() {
                       <label className="block text-sm font-semibold text-slate-700 mb-1">Placa</label>
                       <input
                         type="text"
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-all outline-none bg-slate-50 focus:bg-white font-medium text-slate-900"
                         placeholder="ABC-1234"
                         value={placa}
                         onChange={(e) => setPlaca(e.target.value)}
@@ -589,10 +605,10 @@ export default function Caminhao() {
                   </div>
 
                   <div className="bg-slate-50 p-4 rounded-xl border border-slate-100">
-                    <h3 className="text-xs font-bold text-slate-900 mb-4 flex items-center gap-2">
+                    <h3 className="text-xs font-bold text-slate-900 mb-3 flex items-center gap-2">
                       <Box size={14} className="text-orange-500" /> Dimensões do Baú
                     </h3>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="grid grid-cols-3 gap-3 mb-3">
                       <div>
                         <label className="block text-xs font-semibold text-slate-500 mb-1">Comp. (cm)*</label>
                         <input
@@ -650,23 +666,21 @@ export default function Caminhao() {
 
                   <div>
                     <label className="block text-sm font-semibold text-slate-700 mb-2">
-                      <Image className="w-4 h-4 inline mr-2" />
-                      Foto (opcional)
+                      <Image className="w-4 h-4 inline mr-2" /> Foto (opcional)
                     </label>
-                    <div className="border-2 border-dashed border-slate-200 rounded-xl p-6 text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
+                    <div className="border-2 border-dashed border-slate-200 rounded-xl p-4 text-center hover:bg-slate-50 transition-colors cursor-pointer relative">
                       <input
                         type="file"
                         onChange={(e) => setFoto(e.target.files[0])}
                         className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                       />
-                      <div className="flex flex-col items-center gap-2">
-                        <div className="w-10 h-10 bg-orange-50 rounded-full flex items-center justify-center text-orange-500">
-                          <Image size={20} />
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-8 h-8 bg-orange-50 rounded-full flex items-center justify-center text-orange-500">
+                          <Image size={16} />
                         </div>
-                        <p className="text-sm font-medium text-slate-600">
-                          {foto ? foto.name : "Clique para fazer upload da imagem"}
+                        <p className="text-xs font-medium text-slate-600">
+                          {foto ? foto.name : "Clique para upload"}
                         </p>
-                        <p className="text-xs text-slate-400">PNG, JPG até 5MB</p>
                       </div>
                     </div>
                   </div>
@@ -674,31 +688,32 @@ export default function Caminhao() {
               </div>
 
               {/* Modal Footer */}
-              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3">
+              <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/50 flex justify-end gap-3 shrink-0">
                 <button
                   onClick={() => setIsModalOpen(false)}
-                  className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-white hover:border-slate-300 transition-all"
+                  className="px-5 py-2.5 rounded-xl border border-slate-200 text-slate-600 font-semibold hover:bg-white hover:border-slate-300 transition-all text-sm"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleSalvar}
                   disabled={loading}
-                  className="px-5 py-2.5 rounded-xl bg-orange-600 text-white font-bold hover:bg-orange-700 shadow-lg shadow-orange-500/20 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2 transition-all"
+                  className="px-5 py-2.5 rounded-xl bg-orange-600 text-white font-bold hover:bg-orange-700 shadow-lg shadow-orange-500/20 disabled:opacity-70 disabled:cursor-not-allowed flex items-center gap-2 transition-all text-sm"
                 >
-                  {loading ? <Loader2 className="animate-spin" size={18} /> : <Save size={18} />}
-                  {editId ? "Salvar Alterações" : "Cadastrar"}
+                  {loading ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
+                  {editId ? "Salvar" : "Cadastrar"}
                 </button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
         )}
 
         {/* Import Modal */}
-        {openImportModal && (
-          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+        {openImportModal && createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
             <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setOpenImportModal(false)} />
-            <div className="relative w-full max-w-3xl bg-white rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-fade-in-up">
+            <div className="relative w-full max-w-3xl bg-white rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-fade-in-up">
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center">
                 <h2 className="text-xl font-bold text-slate-900">Importar CSV</h2>
                 <button onClick={() => setOpenImportModal(false)}><X className="text-slate-400 hover:text-slate-600" /></button>
@@ -760,7 +775,42 @@ export default function Caminhao() {
                 <button onClick={importarCSV} disabled={!csvFile} className="px-5 py-2.5 bg-orange-600 text-white font-bold rounded-xl hover:bg-orange-700 disabled:opacity-50 shadow-lg shadow-orange-500/20">Confirmar Importação</button>
               </div>
             </div>
-          </div>
+          </div>,
+          document.body
+        )}
+
+        {/* Delete Confirmation Modal */}
+        {deleteConfirmation && createPortal(
+          <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden animate-fade-in-up">
+              <div className="p-6 text-center">
+                <div className="w-16 h-16 bg-red-100 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <Trash2 size={32} />
+                </div>
+                <h3 className="text-xl font-bold text-slate-900 mb-2">Excluir Veículo?</h3>
+                <p className="text-slate-500 mb-6">
+                  Tem certeza que deseja excluir este veículo? Esta ação não pode ser desfeita.
+                </p>
+                <div className="flex items-center gap-3 justify-center">
+                  <button
+                    onClick={() => setDeleteConfirmation(null)}
+                    className="px-6 py-2.5 rounded-xl border border-slate-200 text-slate-700 font-bold hover:bg-slate-50 transition-all"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={confirmarExclusao}
+                    disabled={loading}
+                    className="px-6 py-2.5 rounded-xl bg-red-500 text-white font-bold hover:bg-red-600 shadow-lg shadow-red-500/20 transition-all flex items-center gap-2"
+                  >
+                    {loading ? <Loader2 className="animate-spin" size={20} /> : <Trash2 size={20} />}
+                    <span>Excluir</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
       </div>
     </ClientLayout>

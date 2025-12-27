@@ -240,6 +240,15 @@ export function initFullLoadEngine(container, initialBau = null) {
     if (!running) return;
     rafId = requestAnimationFrame(animate);
     controls.update();
+
+    // Ghost Pulsing Animation
+    if (ghost && ghost.visible && ghost.userData.isValid && ghost.children[0]) {
+      const mesh = ghost.children[0];
+      // Pulse between 0.3 and 0.7
+      const time = Date.now() * 0.005;
+      mesh.material.opacity = 0.5 + Math.sin(time) * 0.2;
+    }
+
     renderer.render(scene, camera);
   }
   animate();
@@ -284,16 +293,27 @@ export function initFullLoadEngine(container, initialBau = null) {
     clearHighlight();
     if (!mesh || !mesh.material) return;
     selectedId = mesh.userData?.colocId || null;
-    mesh.userData._oldEmissive = mesh.material.emissive ? mesh.material.emissive.clone() : null;
-    if (mesh.material && mesh.material.emissive) mesh.material.emissive.setHex(0x4444ff);
+
+    // Fix for Shared Materials: Clone material for highlight
+    if (!mesh.userData._originalMat) {
+      mesh.userData._originalMat = mesh.material;
+      const newMat = mesh.material.clone();
+      newMat.emissive.setHex(0x4444ff);
+      mesh.material = newMat;
+    }
   }
+
   function clearHighlight() {
     if (!selectedId) return;
     const entry = placed.get(selectedId);
-    if (entry && entry.mesh && entry.mesh.material && entry.mesh.userData._oldEmissive) {
-      try {
-        entry.mesh.material.emissive.copy(entry.mesh.userData._oldEmissive);
-      } catch { }
+    if (entry && entry.mesh) {
+      const mesh = entry.mesh;
+      if (mesh.userData._originalMat) {
+        // Restore original shared material
+        mesh.material.dispose(); // Dispose the clone
+        mesh.material = mesh.userData._originalMat;
+        delete mesh.userData._originalMat;
+      }
     }
     selectedId = null;
   }
@@ -311,140 +331,154 @@ export function initFullLoadEngine(container, initialBau = null) {
       mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
       mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
 
-      if (!bauGroup || !ghost.visible) return;
+      // Ctrl Key = Select Mode
+      const isSelectMode = e.ctrlKey;
 
-      raycaster.setFromCamera(mouse, camera);
-      const plane = bauGroup.getObjectByName("bau_ground_plane");
-
-      if (!plane) return;
-
-      const ints = raycaster.intersectObject(plane);
-      if (!ints.length) return;
-      const p = ints[0].point;
-
-      const step = 0.01; // 1cm precision
-
-      let gx = snap(p.x, step);
-      let gz = snap(p.z, step);
-
-      const ghostMesh = ghost.children[0];
-      if (!ghostMesh) return;
-
-      const rawSize = ghostMesh.userData._size;
-      const rotY = ghostMesh.rotation.y;
-
-      // Calculate effective size based on rotation using Box3
-      const box = new THREE.Box3().setFromObject(ghostMesh);
-      const sizeVec = new THREE.Vector3();
-      box.getSize(sizeVec);
-      const size = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
-
-      // 0. Size Check (Must fit in truck)
-      if (size.x > bauInnerBox.max.x || size.y > bauInnerBox.max.y || size.z > bauInnerBox.max.z) {
-        ghostMesh.material.color.setHex(0xff0000);
-        ghostMesh.material.opacity = 0.8;
-        ghost.userData.isValid = false;
-        ghost.userData.error = "Item maior que o baú!";
-        // Center it just to show it
-        ghost.position.set(bauInnerBox.max.x / 2, size.y / 2, bauInnerBox.max.z / 2);
-        return;
+      if (isSelectMode) {
+        ghost.visible = false;
+        // Proceed to hover detection
       } else {
-        ghost.userData.error = null;
+        // Restore ghost if it has content
+        if (ghost.children.length > 0) {
+          ghost.visible = true;
+        }
       }
 
-      const existingItems = Array.from(placed.values());
+      if (bauGroup && ghost.visible) {
+        raycaster.setFromCamera(mouse, camera);
+        const plane = bauGroup.getObjectByName("bau_ground_plane");
 
-      // Helper to evaluate a position
-      const evaluatePosition = (tx, tz) => {
-        // 1. Tight Pack (Magnetic Snap) - Optional for jump candidates?
-        // Let's keep it consistent: always snap
-        // But for jump candidates, we might want to be explicit.
-        // For the primary mouse position, we do tightPack.
-        // For jump candidates, we stick to the grid relative to the obstacle.
+        if (plane) {
+          const ints = raycaster.intersectObject(plane);
+          if (ints.length) {
+            const p = ints[0].point;
+            const step = 0.01; // 1cm precision
 
-        // 2. Strict Clamp
-        const clamped = clampInsideBau({ x: tx, y: size.y / 2, z: tz }, size, bauInnerBox, 0.001);
-        const cx = clamped.x;
-        const cz = clamped.z;
+            let gx = snap(p.x, step);
+            let gz = snap(p.z, step);
 
-        // 3. Determine Y
-        const currentType = ghostMesh.userData._meta?.tipo || "caixa";
-        const validY = computeStackY(existingItems, bauInnerBox, cx, cz, size.x, size.y, size.z, currentType);
+            const ghostMesh = ghost.children[0];
+            if (ghostMesh) {
+              const rawSize = ghostMesh.userData._size;
+              // ... existing ghost logic ...
+              // Calculate effective size based on rotation using Box3
+              const box = new THREE.Box3().setFromObject(ghostMesh);
+              const sizeVec = new THREE.Vector3();
+              box.getSize(sizeVec);
+              const size = { x: sizeVec.x, y: sizeVec.y, z: sizeVec.z };
 
-        // 4. Overlap Check
-        const isOverlapping = checkOverlap({ x: cx, y: validY !== null ? validY : size.y / 2, z: cz }, size, existingItems);
+              // 0. Size Check (Must fit in truck)
+              let result = null;
+              if (size.x > bauInnerBox.max.x || size.y > bauInnerBox.max.y || size.z > bauInnerBox.max.z) {
+                ghostMesh.material.color.setHex(0xff0000);
+                ghostMesh.material.opacity = 0.8;
+                ghost.userData.isValid = false;
+                ghost.userData.error = "Item maior que o baú!";
+                // Center it just to show it
+                ghost.position.set(bauInnerBox.max.x / 2, size.y / 2, bauInnerBox.max.z / 2);
+              } else {
+                ghost.userData.error = null;
 
-        return { x: cx, y: validY, z: cz, isOverlapping, validY };
-      };
+                const existingItems = Array.from(placed.values());
 
-      // --- PRIMARY ATTEMPT ---
-      // 1. Tight Pack (Magnetic Snap)
-      const packed = tightPack(gx, gz, size.x, size.z, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
-      // Evaluate Primary
-      let result = evaluatePosition(packed.x, packed.z);
+                // Helper to evaluate a position
+                const evaluatePosition = (tx, tz) => {
+                  // 2. Strict Clamp
+                  const clamped = clampInsideBau({ x: tx, y: size.y / 2, z: tz }, size, bauInnerBox, 0.001);
+                  const cx = clamped.x;
+                  const cz = clamped.z;
 
-      // --- JUMP MECHANISM ---
-      if (result.isOverlapping) {
-        // Try to find a valid neighbor
-        // Offsets: Left, Right, Back, Front
-        // We use the full dimension to jump "over" the obstacle (or just enough to clear it)
-        // But since we don't know WHICH obstacle we hit, we just try jumping by our own size + margin.
+                  // 3. Determine Y
+                  const currentType = ghostMesh.userData._meta?.tipo || "caixa";
+                  const validY = computeStackY(existingItems, bauInnerBox, cx, cz, size.x, size.y, size.z, currentType);
 
-        const jumpMargin = 0.02; // 2cm clearance
-        const offsets = [
-          { x: size.x + jumpMargin, z: 0 },  // Right
-          { x: -(size.x + jumpMargin), z: 0 }, // Left
-          { x: 0, z: size.z + jumpMargin },  // Back
-          { x: 0, z: -(size.z + jumpMargin) }  // Front
-        ];
+                  // 4. Overlap Check
+                  const isOverlapping = checkOverlap({ x: cx, y: validY !== null ? validY : size.y / 2, z: cz }, size, existingItems);
 
-        for (const off of offsets) {
-          // Try jumping from the MOUSE position (packed), or the clamped position?
-          // Using result.x/z (which are clamped and packed) is better as a base.
-          const jx = result.x + off.x;
-          const jz = result.z + off.z;
+                  return { x: cx, y: validY, z: cz, isOverlapping, validY };
+                };
 
-          const jumpResult = evaluatePosition(jx, jz);
+                // --- PRIMARY ATTEMPT ---
+                // 1. Tight Pack (Magnetic Snap)
+                const packed = tightPack(gx, gz, size.x, size.z, bauInnerBox.max.x, bauInnerBox.max.z, existingItems);
+                // Evaluate Primary
+                result = evaluatePosition(packed.x, packed.z);
 
-          // If valid (no overlap AND valid inside bau AND valid Y found)
-          // Note: validY !== null check is crucial (it means supported or on floor).
-          if (!jumpResult.isOverlapping && jumpResult.validY !== null) {
-            // START: Double check that we didn't just jump into another object 
-            // (evaluatePosition checks overlap, so we are good).
-            // Also check if we are still far enough from the original point? 
-            // (Not strict requirement, but we want it to visually pop to a free spot).
+                // --- JUMP MECHANISM ENHANCED ---
+                if (result.isOverlapping) {
+                  const jumpMargin = 0.05; // 5cm clearance
+                  const directions = [
+                    { x: 1, z: 0 },   // Right
+                    { x: -1, z: 0 },  // Left
+                    { x: 0, z: 1 },   // Back
+                    { x: 0, z: -1 }   // Front
+                  ];
 
-            // Check if we are physically inside the container (clamp handles it, but check if clamp changed it too much)
-            // If clamp moved it back to the collision, it's invalid.
-            const distOriginal = Math.abs(jumpResult.x - result.x) + Math.abs(jumpResult.z - result.z);
-            if (distOriginal > 0.01) {
-              result = jumpResult; // FOUND VALID JUMP!
-              break;
+                  let foundJump = null;
+
+                  outerLoop:
+                  for (let mult = 1; mult <= 3; mult++) {
+                    for (const dir of directions) {
+                      const jx = result.x + (dir.x * (size.x + jumpMargin) * mult);
+                      const jz = result.z + (dir.z * (size.z + jumpMargin) * mult);
+
+                      const jumpResult = evaluatePosition(jx, jz);
+
+                      if (!jumpResult.isOverlapping && jumpResult.validY !== null) {
+                        const distTarget = Math.sqrt(Math.pow(jumpResult.x - jx, 2) + Math.pow(jumpResult.z - jz, 2));
+                        if (distTarget < 0.1) {
+                          foundJump = jumpResult;
+                          break outerLoop;
+                        }
+                      }
+                    }
+                  }
+
+                  if (foundJump) {
+                    result = foundJump;
+                  }
+                }
+
+                let gy;
+                const edges = ghostMesh.userData._edges;
+
+                if (result.validY !== null && !result.isOverlapping) {
+                  gy = result.validY;
+                  const colorHex = ghostMesh.userData._meta?.cor ? ghostMesh.userData._meta.cor : (ghostMesh.userData._meta?.color || "#0000aa");
+                  ghostMesh.material.color.set(colorHex);
+
+                  if (edges) {
+                    edges.material.color.setHex(0xf97316); // Brand Orange for valid identity
+                    edges.material.opacity = 1.0;
+                  }
+
+                  ghost.userData.isValid = true;
+                } else {
+                  gy = result.validY !== null ? result.validY : size.y / 2;
+                  ghostMesh.material.color.setHex(0xff0000);
+                  ghostMesh.material.opacity = 0.8; // Solid red for error
+
+                  if (edges) {
+                    edges.material.color.setHex(0xff0000); // Red edges for invalid
+                    edges.material.opacity = 1.0;
+                  }
+
+                  ghost.userData.isValid = false;
+                  ghost.userData.error = "Posição inválida (Colisão ou fora do baú)";
+                }
+
+                // Final position update
+                if (result)
+                  ghost.position.set(result.x, gy, result.z);
+              }
             }
           }
         }
       }
 
-      let gy;
-      if (result.validY !== null && !result.isOverlapping) {
-        gy = result.validY;
-        // Use meta color or default
-        const colorHex = ghostMesh.userData._meta?.cor ? ghostMesh.userData._meta.cor : (ghostMesh.userData._meta?.color || "#0000aa");
-        ghostMesh.material.color.set(colorHex);
-        ghostMesh.material.opacity = 0.5;
-        ghost.userData.isValid = true;
-      } else {
-        gy = result.validY !== null ? result.validY : size.y / 2;
-        ghostMesh.material.color.setHex(0xff0000);
-        ghostMesh.material.opacity = 0.8;
-        ghost.userData.isValid = false;
-      }
-
-      // Final position update
-      ghost.position.set(result.x, gy, result.z);
-
       // --- HOVER DETECTION ---
-      // Raycast against placed items to detect hover
+      // IMPORTANT: Run this even if ghost is hidden (Select Mode)
+      raycaster.setFromCamera(mouse, camera); // Ensure raycaster is updated for hover check
       const placedMeshes = Array.from(placed.values()).map(p => p.mesh);
       const intersects = raycaster.intersectObjects(placedMeshes, false);
 
@@ -453,11 +487,21 @@ export function initFullLoadEngine(container, initialBau = null) {
         const id = mesh.userData.colocId;
         if (id !== hoveredId) {
           hoveredId = id;
-          // Optional: Highlight hovered item differently?
-          // For now, just tracking it is enough for the delete logic.
+
+          // Visual Feedback for Hover in Select Mode
+          if (isSelectMode) {
+            highlightSelect(mesh); // Reuse highlight logic for preview
+            // Note: highlightSelect sets selectedId, which might be overkill, 
+            // but it gives visual feedback. 
+            // Ideally we should have a temporary 'hover' highlight.
+            // For now, let's just highlight it.
+          }
         }
       } else {
         hoveredId = null;
+        if (isSelectMode && !selectedId) {
+          clearHighlight();
+        }
       }
 
     } catch (err) {
@@ -471,6 +515,68 @@ export function initFullLoadEngine(container, initialBau = null) {
     placeItemInternal(position, rotation, meta);
   }
 
+  function createPalletMesh({ width, height, depth, color }) {
+    // Pallet Group
+    const group = new THREE.Group();
+
+    const WOOD_COLOR = 0xdcb35c;
+    const material = new THREE.MeshStandardMaterial({
+      color: WOOD_COLOR,
+      roughness: 0.9,
+      metalness: 0.1
+    });
+
+    // 1. Top Deck (Solid for physics simplicity, but visually distinct)
+    const deckH = height * 0.3; // 30% thickness
+    const topDeck = new THREE.Mesh(new THREE.BoxGeometry(width, deckH, depth), material);
+    topDeck.position.y = (height / 2) - (deckH / 2);
+    topDeck.castShadow = true;
+    topDeck.receiveShadow = true;
+    group.add(topDeck);
+
+    // 2. Middle Blocks (3 blocks)
+    const blockW = width * 0.15;
+    const blockH = height * 0.4;
+    const blockD = depth; // Full depth runners
+    const blockGeo = new THREE.BoxGeometry(blockW, blockH, blockD);
+
+    // Left
+    const leftBlock = new THREE.Mesh(blockGeo, material);
+    leftBlock.position.set(-(width / 2) + (blockW / 2), 0, 0);
+    group.add(leftBlock);
+
+    // Center
+    const centerBlock = new THREE.Mesh(blockGeo, material);
+    centerBlock.position.set(0, 0, 0);
+    group.add(centerBlock);
+
+    // Right
+    const rightBlock = new THREE.Mesh(blockGeo, material);
+    rightBlock.position.set((width / 2) - (blockW / 2), 0, 0);
+    group.add(rightBlock);
+
+    // 3. Bottom Deck (3 planks matching blocks)
+    const botH = height * 0.3;
+    const plankGeo = new THREE.BoxGeometry(blockW, botH, depth);
+
+    const leftPlank = new THREE.Mesh(plankGeo, material);
+    leftPlank.position.set(-(width / 2) + (blockW / 2), -(height / 2) + (botH / 2), 0);
+    group.add(leftPlank);
+
+    const centerPlank = new THREE.Mesh(plankGeo, material);
+    centerPlank.position.set(0, -(height / 2) + (botH / 2), 0);
+    group.add(centerPlank);
+
+    const rightPlank = new THREE.Mesh(plankGeo, material);
+    rightPlank.position.set((width / 2) - (blockW / 2), -(height / 2) + (botH / 2), 0);
+    group.add(rightPlank);
+
+    // Add invisible fill box for simplified raycasting/physics if needed? 
+    // No, Box3FromObject handles the group fine.
+
+    return group;
+  }
+
   function placeItemInternal(position, rotation, meta, existingId = null, overrideSize = null) {
     const colocId = existingId || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `item_${Date.now()}_${Math.random()}`);
     const currentType = meta.tipo || "caixa";
@@ -482,15 +588,20 @@ export function initFullLoadEngine(container, initialBau = null) {
       return null;
     }
 
+    // Determine Color (Priority: Stop Color > Item Color > Default)
+    const color = meta.stopData?.color || meta.cor || (currentType === "pneu" ? "#111" : "#ff7a18");
+
     let mesh;
     if (currentType === "cilindrico") {
-      mesh = createCylinderMesh({ diameter: size.x, height: size.y, color: meta.cor || "#333" });
+      mesh = createCylinderMesh({ diameter: size.x, height: size.y, color: color });
     } else if (currentType === "pneu") {
       const radius = size.y / 2;
       const width = size.x;
-      mesh = createTireMesh({ radius, width, color: meta.cor || "#111" });
+      mesh = createTireMesh({ radius, width, color: color });
+    } else if (currentType === "palete") {
+      mesh = createPalletMesh({ width: size.x, height: size.y, depth: size.z, color: color });
     } else {
-      mesh = createBoxMesh([size.x, size.y, size.z], meta.cor || "#ff7a18");
+      mesh = createBoxMesh([size.x, size.y, size.z], color);
     }
 
     mesh.userData._size = size;
@@ -584,6 +695,7 @@ export function initFullLoadEngine(container, initialBau = null) {
   }
 
   function onClick(e) {
+    if (e.ctrlKey) return; // Prevent placement if selecting
     if (!ghost.visible) return;
 
     if (!ghost.userData.isValid) {
@@ -970,6 +1082,10 @@ export function initFullLoadEngine(container, initialBau = null) {
   // API: setBau(truck)
   function setBau(truck) {
     // remove old bau
+    const existingGroup = scene.getObjectByName("bau_group");
+    if (existingGroup) {
+      try { scene.remove(existingGroup); } catch { }
+    }
     if (bauGroup) {
       try { scene.remove(bauGroup); } catch { }
       bauGroup = null;
@@ -1117,8 +1233,8 @@ export function initFullLoadEngine(container, initialBau = null) {
 
     console.log("🎥 focusCamera: Calc", { L, H, W, maxDim, fov, cameraZ, center });
 
-    // Position: ISO-like diagonal
-    const direction = new THREE.Vector3(-1, 1, 1).normalize(); // Standard ISO
+    // Position: ISO-like diagonal (View from Door/Fundo towards Peito)
+    const direction = new THREE.Vector3(1, 1, 1).normalize();
     const position = center.clone().add(direction.multiplyScalar(cameraZ));
 
     console.log("🎥 focusCamera: Setting Position", position);
@@ -1280,44 +1396,57 @@ export function initFullLoadEngine(container, initialBau = null) {
       return;
     }
 
+    let mesh;
     const tipo = merc.tipo || "caixa";
+
+    // Helper to fix edges
+    const setupEdges = (mesh) => {
+      // Find the edges child
+      const edges = mesh.children.find(c => c.isLineSegments);
+      if (edges) {
+        edges.material = edges.material.clone(); // Clone to allow unique color
+        edges.material.color.setHex(0xffffff);
+        edges.material.linewidth = 2; // Warning: WebGL often ignores linewidth > 1
+        mesh.userData._edges = edges;
+      }
+    };
+
     if (tipo === "cilindrico") {
       const outer = cmToM(merc.largura || merc.W || 230);
       const height = cmToM(merc.altura || merc.H || 30);
-      const mesh = createCylinderMesh({ diameter: outer, height, color: merc.color || "#00a" });
+      mesh = createCylinderMesh({ diameter: outer, height, color: merc.color || "#00a" });
       mesh.material = mesh.material.clone();
       mesh.material.transparent = true;
-      mesh.material.opacity = 0.35;
+      mesh.material.opacity = 0.5; // Base opacity
       mesh.userData._size = { x: outer, y: height, z: outer };
-      mesh.userData._meta = merc;
-      ghost.add(mesh);
-      ghost.visible = true;
+
     } else if (tipo === "pneu") {
       const radius = cmToM((merc.largura || merc.W || 60) / 2);
       const width = cmToM(merc.comprimento || merc.L || 20);
-      const mesh = createTireMesh({ radius, width, color: merc.color || "#111" });
+      mesh = createTireMesh({ radius, width, color: merc.color || "#111" });
       mesh.material = mesh.material.clone();
       mesh.material.transparent = true;
-      mesh.material.opacity = 0.35;
+      mesh.material.opacity = 0.5;
       const diameter = radius * 2;
       mesh.userData._size = { x: width, y: diameter, z: diameter };
-      mesh.userData._meta = merc;
-      ghost.add(mesh);
-      ghost.visible = true;
+
     } else {
       const sx = cmToM(merc.comprimento || merc.L || 50);
       const sy = cmToM(merc.altura || merc.H || 50);
       const sz = cmToM(merc.largura || merc.W || 50);
-      const mesh = createBoxMesh([sx, sy, sz], merc.cor || merc.color || "#00a");
+      mesh = createBoxMesh([sx, sy, sz], merc.cor || merc.color || "#00a");
       mesh.material = mesh.material.clone();
       mesh.material.transparent = true;
-      mesh.material.opacity = 0.25;
+      mesh.material.opacity = 0.5;
       mesh.userData._size = { x: sx, y: sy, z: sz };
-      mesh.userData._meta = merc;
-      mesh.userData._rotIndex = 0;
-      ghost.add(mesh);
-      ghost.visible = true;
     }
+
+    mesh.userData._meta = merc;
+    mesh.userData._rotIndex = 0;
+    setupEdges(mesh);
+
+    ghost.add(mesh);
+    ghost.visible = true;
   }
 
   function placeGhostAtWorld(positionVec3) {
@@ -1691,8 +1820,9 @@ export function initFullLoadEngine(container, initialBau = null) {
         }
       }));
 
-      // DEBUG: Draw Truck Bounds
-      if (true) { // Always on for now to debug
+      // DEBUG: Draw Truck Bounds (REMOVO RED WIREFRAME FIX)
+      /*
+      if (false) { // Disabled for production
         const boxGeo = new THREE.BoxGeometry(truckDims.L, truckDims.H, truckDims.W);
         const boxEdges = new THREE.EdgesGeometry(boxGeo);
         const boxLine = new THREE.LineSegments(boxEdges, new THREE.LineBasicMaterial({ color: 0xff0000 }));
@@ -1700,6 +1830,7 @@ export function initFullLoadEngine(container, initialBau = null) {
         boxLine.position.set(truckDims.L / 2, truckDims.H / 2, truckDims.W / 2);
         scene.add(boxLine);
       }
+      */
 
     } catch (err) {
       console.error("Optimization error:", err);
@@ -1777,6 +1908,78 @@ export function initFullLoadEngine(container, initialBau = null) {
     setGhostMeta(mercadoria);
   }
 
+
+  async function generateStepSnapshots(stepsData) {
+    // stepsData: Array of { itemIds: string[], center?: {x,y,z} }
+    const results = [];
+    const allItems = Array.from(placed.values());
+
+    // 1. Save Original State
+    const originalPos = camera.position.clone();
+    const originalTarget = controls.target.clone();
+    const originalClearColor = new THREE.Color();
+    renderer.getClearColor(originalClearColor);
+    const originalShadows = renderer.shadowMap.enabled;
+
+    // 2. Setup "Studio Mode"
+    allItems.forEach(p => p.mesh.visible = false);
+
+    // Polish 1: White Background
+    renderer.setClearColor(0xffffff, 1);
+
+    // Polish 2: Shadows (basic enable, assumes lights are setup)
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    for (const step of stepsData) {
+      // Show items for this step
+      step.itemIds.forEach(id => {
+        const entry = placed.get(id);
+        if (entry) entry.mesh.visible = true;
+      });
+
+      // 3. Focus Camera (Cinematic ISO)
+      if (step.center) {
+        const cx = step.center.x;
+        const cy = step.center.y;
+        const cz = step.center.z;
+
+        controls.target.set(cx, cy, cz);
+
+        // Polish 3: Perfect Isometric Angle (approx 35.264 degrees pitch)
+        // Distance: Fixed offset for consistent scale, or dynamic based on load size?
+        // Let's use a fixed offset vector rotated to ISO.
+        // Isometric from Back-Right: X+, Y+, Z+
+        const dist = 12; // Zoom distance
+        camera.position.set(cx + dist, cy + (dist * 0.816), cz + dist); // Visual tweak for ISO
+        camera.lookAt(cx, cy, cz);
+      }
+      controls.update();
+
+      // Render
+      renderer.render(scene, camera);
+
+      const img = renderer.domElement.toDataURL("image/png");
+      results.push(img);
+
+      // Async yield
+      await new Promise(r => setTimeout(r, 60));
+    }
+
+    // 4. Restore State
+    allItems.forEach(p => p.mesh.visible = true);
+    controls.target.copy(originalTarget);
+    camera.position.copy(originalPos);
+
+    renderer.setClearColor(originalClearColor);
+    renderer.shadowMap.enabled = originalShadows;
+
+    controls.update();
+    renderer.render(scene, camera);
+
+    return results;
+  }
+
   _engineAPI = {
     setBau,
     setItems,
@@ -1785,6 +1988,7 @@ export function initFullLoadEngine(container, initialBau = null) {
     placeItemAt,
     removeItem,
     clearScene,
+    generateStepSnapshots, // New API
     addMercadoriaAuto,
     optimizeLoad,
     undo: internalUndo,
@@ -1824,6 +2028,7 @@ export const placeItemAt = (pos, rot, meta) => _engineAPI && _engineAPI.placeIte
 export const removeItem = (id) => _engineAPI && _engineAPI.removeItem(id);
 export const clearScene = () => _engineAPI && _engineAPI.clearScene();
 export const addMercadoriaAuto = (merc, qtd) => _engineAPI && _engineAPI.addMercadoriaAuto(merc, qtd);
+export const generateStepSnapshots = (steps) => _engineAPI && _engineAPI.generateStepSnapshots ? _engineAPI.generateStepSnapshots(steps) : Promise.resolve([]);
 export const captureSnapshot = (view) => _engineAPI && _engineAPI.captureSnapshot ? _engineAPI.captureSnapshot(view) : null;
 export const getPlacedItems = () => _engineAPI && _engineAPI.getPlacedItems ? _engineAPI.getPlacedItems() : [];
 export const getBauState = () => _engineAPI && _engineAPI.getBauState ? _engineAPI.getBauState() : null;

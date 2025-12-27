@@ -25,6 +25,7 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
   const [isOpen, setIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState("mercadorias");
 
+
   // Firestore listeners
   useEffect(() => {
     if (!empresaId) return;
@@ -41,7 +42,27 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
 
     const unsub2 = onSnapshot(
       collection(db, "empresas", empresaId, "mercadorias"),
-      snap => setMercadorias(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })))
+      (snap) => {
+        let items = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+        // Sort items by name to ensure consistent color assignment
+        items.sort((a, b) => (a.nome || "").localeCompare(b.nome || ""));
+
+        // Assign dynamic colors
+        const total = items.length;
+        items = items.map((item, index) => {
+          // Dynamic HSL Generation
+          // Hue: Distribute evenly across 360 degrees
+          // Saturation: 70% (vibrant)
+          // Lightness: 50% (readable against white/dark)
+          const hue = Math.floor((index * 360) / (total || 1));
+          const color = `hsl(${hue}, 70%, 50%)`;
+
+          return { ...item, cor: color };
+        });
+
+        setMercadorias(items);
+      }
     );
 
     return () => {
@@ -163,6 +184,8 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
           label="Itens"
         />
 
+
+
         <div className="mt-auto flex flex-col gap-4 items-center w-full pb-4">
           <NavButton
             active={activeTab === "config"}
@@ -253,6 +276,10 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
             <div className="flex flex-col h-full animate-fade-in">
               <SectionHeader icon={<Package className="w-4 h-4" />} title="Catálogo de Itens" />
 
+
+
+
+
               {/* Search */}
               <div className="relative mb-5 group">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-orange-500 transition-colors" />
@@ -285,6 +312,7 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
               <div className="flex-1 overflow-y-auto space-y-3 pr-1 custom-scrollbar">
                 {mercadoriasFiltradas.map(m => {
                   const isSelected = selectedIds.has(m.id) || mercadoriaSelecionada?.id === m.id;
+
                   return (
                     <div
                       key={m.id}
@@ -340,7 +368,8 @@ export default function Menu3D({ onSelectBau, onSelectMercadoria }) {
 
         </div>
 
-        {/* FOOTER ACTION (Only for Mercadorias) */}
+        {/* --- TAB: DESTINOS --- */}
+
         {activeTab === "mercadorias" && (selectedIds.size > 0 || mercadoriaSelecionada) && (
           <div className="p-5 border-t border-slate-800 bg-[#0f172a] shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.3)] z-30">
             <div className="flex items-center gap-3 mb-4">
